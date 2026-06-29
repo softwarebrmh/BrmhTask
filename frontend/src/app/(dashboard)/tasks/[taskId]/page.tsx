@@ -866,7 +866,7 @@ function AssigneePicker({ task, companyId }: { task: any; companyId: string }) {
               autoFocus
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search staff…"
+              placeholder="Search employees…"
               className="flex-1 text-sm outline-none"
             />
             <button onClick={() => { setOpen(false); setSearch(''); }}>
@@ -875,7 +875,7 @@ function AssigneePicker({ task, companyId }: { task: any; companyId: string }) {
           </div>
           <ul className="max-h-40 overflow-y-auto">
             {staffList.length === 0 && (
-              <li className="px-3 py-2 text-xs text-gray-400 text-center">No active staff found</li>
+              <li className="px-3 py-2 text-xs text-gray-400 text-center">No active employees found</li>
             )}
             {staffList.map((s: any) => {
               const isAssigned = activeAssigneeIds.has(s.user?.id);

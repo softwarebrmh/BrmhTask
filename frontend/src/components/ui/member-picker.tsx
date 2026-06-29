@@ -108,7 +108,7 @@ export function MemberPicker({ companyId, members, onAdd, onRemove, isAdmin, que
               autoFocus
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search staff…"
+              placeholder="Search employees…"
               className="flex-1 text-sm outline-none"
             />
             <button onClick={() => { setOpen(false); setSearch(''); }}>
@@ -117,7 +117,7 @@ export function MemberPicker({ companyId, members, onAdd, onRemove, isAdmin, que
           </div>
           <ul className="max-h-44 overflow-y-auto">
             {staffList.length === 0 && (
-              <li className="px-3 py-2 text-xs text-gray-400 text-center">No active staff found</li>
+              <li className="px-3 py-2 text-xs text-gray-400 text-center">No active employees found</li>
             )}
             {staffList.map((s: any) => {
               const isAdded = s.user && memberUserIds.has(s.user.id);

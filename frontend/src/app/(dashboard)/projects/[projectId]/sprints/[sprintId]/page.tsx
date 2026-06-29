@@ -476,7 +476,7 @@ export default function SprintTasksPage() {
                       autoFocus
                       value={assigneeSearch}
                       onChange={(e) => setAssigneeSearch(e.target.value)}
-                      placeholder="Search staff…"
+                      placeholder="Search employees…"
                       className="flex-1 text-sm outline-none"
                     />
                     <button type="button" onClick={() => { setShowAssigneePicker(false); setAssigneeSearch(''); }}>
@@ -485,7 +485,7 @@ export default function SprintTasksPage() {
                   </div>
                   <ul className="max-h-36 overflow-y-auto">
                     {staffList.length === 0 && (
-                      <li className="px-3 py-2 text-xs text-gray-400 text-center">No active staff found</li>
+                      <li className="px-3 py-2 text-xs text-gray-400 text-center">No active employees found</li>
                     )}
                     {staffList.map((s: any) => {
                       const uid = s.user?.id;

@@ -20,7 +20,7 @@ type FormData = z.infer<typeof schema>;
 
 const DEMO_CREDENTIALS = [
   { label: 'Admin', email: 'admin@demo.com', password: 'Admin1234!' },
-  { label: 'Staff', email: 'staff@demo.com', password: 'Staff1234!' },
+  { label: 'Employee', email: 'staff@demo.com', password: 'Staff1234!' },
 ] as const;
 
 export default function LoginPage() {

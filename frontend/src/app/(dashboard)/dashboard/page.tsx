@@ -128,7 +128,7 @@ function AdminDashboardView({ companyId }: { companyId: string }) {
     <div className="space-y-6">
       {/* Stats row */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard label="Active Staff"   value={data.staff.active}   sub={`${data.staff.pending} pending invite`} icon={Users} />
+        <StatCard label="Active Employees" value={data.staff.active}   sub={`${data.staff.pending} pending invite`} icon={Users} />
         <StatCard label="Active Projects" value={data.projects.active} icon={FolderOpen} />
         <StatCard label="Active Sprints"  value={data.sprints.active}  icon={TrendingUp} />
         <StatCard label="Tasks Due Soon"  value={data.tasks.todo + data.tasks.inProgress} sub="todo + in progress" icon={Clock} accent={data.tasks.todo + data.tasks.inProgress > 20} />
@@ -153,9 +153,9 @@ function AdminDashboardView({ companyId }: { companyId: string }) {
   );
 }
 
-// ─── Staff dashboard ──────────────────────────────────────────────────────────
+// ─── Employee dashboard ────────────────────────────────────────────────────────
 
-function StaffDashboardView() {
+function EmployeeDashboardView() {
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard', 'staff'],
     queryFn: () => dashboardApi.staff().then((r) => r.data.data as StaffDashboard),
@@ -165,7 +165,6 @@ function StaffDashboardView() {
   if (!data) return null;
 
   const tasks = data.myTasks;
-  const overdue = (data as any).overdueTasks ?? [];
   const upcoming = data.upcomingTasks ?? [];
 
   return (
@@ -173,10 +172,10 @@ function StaffDashboardView() {
       {/* My task stats */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         {[
-          { label: 'To Do',       value: tasks.todo,       color: 'text-gray-900' },
-          { label: 'In Progress', value: tasks.inProgress, color: 'text-blue-600' },
-          { label: 'In Review',   value: tasks.review,     color: 'text-amber-600' },
-          { label: 'Done',        value: tasks.done,       color: 'text-emerald-600' },
+          { label: 'To Do',       value: tasks.todo,         color: 'text-gray-900' },
+          { label: 'In Progress', value: tasks.inProgress,   color: 'text-blue-600' },
+          { label: 'In Review',   value: tasks.review,       color: 'text-amber-600' },
+          { label: 'Done',        value: tasks.done,         color: 'text-emerald-600' },
           { label: 'Overdue',     value: tasks.overdue ?? 0, color: 'text-red-600' },
         ].map(({ label, value, color }) => (
           <div key={label} className="rounded-xl border border-gray-100 bg-white p-4">
@@ -192,14 +191,14 @@ function StaffDashboardView() {
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
               <Calendar className="h-4 w-4 text-gray-400" />
-              Upcoming Tasks
+              My Tasks
             </h3>
             <Link href="/my-tasks" className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
               View all <ArrowRight className="h-3 w-3" />
             </Link>
           </div>
           {upcoming.length === 0 ? (
-            <p className="text-sm text-gray-400 py-4 text-center">No upcoming tasks</p>
+            <p className="text-sm text-gray-400 py-4 text-center">No tasks assigned yet</p>
           ) : (
             <ul className="divide-y divide-gray-50">
               {upcoming.slice(0, 6).map((task) => (
@@ -208,7 +207,7 @@ function StaffDashboardView() {
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-gray-900">{task.name}</p>
                       <p className="text-xs text-gray-400 mt-0.5">
-                        Due {formatDate(task.plannedDueDate)}
+                        {task.plannedDueDate ? `Due ${formatDate(task.plannedDueDate)}` : 'No due date'}
                       </p>
                     </div>
                     <TaskStatusBadge status={task.status} />
@@ -219,34 +218,62 @@ function StaffDashboardView() {
           )}
         </div>
 
-        {/* Active sprints */}
+        {/* Active sprints I'm part of */}
         <div className="rounded-xl border border-gray-100 bg-white p-5">
           <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-4">
             <TrendingUp className="h-4 w-4 text-gray-400" />
-            Active Sprints
+            My Sprints
           </h3>
           {data.activeSprints.length === 0 ? (
-            <p className="text-sm text-gray-400 py-4 text-center">No active sprints</p>
+            <p className="text-sm text-gray-400 py-4 text-center">Not assigned to any active sprint</p>
           ) : (
             <ul className="divide-y divide-gray-50">
               {data.activeSprints.map((sprint) => (
-                <li key={sprint.id} className="py-3 flex items-center justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-gray-900">{sprint.name}</p>
-                    {sprint.goal && (
-                      <p className="truncate text-xs text-gray-400 mt-0.5">{sprint.goal}</p>
-                    )}
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {formatDate(sprint.startDate)} → {formatDate(sprint.endDate)}
-                    </p>
-                  </div>
-                  <SprintStatusBadge status={sprint.status} />
+                <li key={sprint.id} className="py-3">
+                  <Link
+                    href={sprint.project ? `/projects/${sprint.project.id}/sprints/${sprint.id}` : '#'}
+                    className="flex items-center justify-between gap-3 hover:opacity-75 transition-opacity"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-gray-900">{sprint.name}</p>
+                      {sprint.project && (
+                        <p className="text-xs text-gray-400 mt-0.5">{sprint.project.name}</p>
+                      )}
+                      {sprint.goal && (
+                        <p className="truncate text-xs text-gray-400 mt-0.5">{sprint.goal}</p>
+                      )}
+                    </div>
+                    <SprintStatusBadge status={sprint.status} />
+                  </Link>
                 </li>
               ))}
             </ul>
           )}
         </div>
       </div>
+
+      {/* My projects */}
+      {data.myProjects && data.myProjects.length > 0 && (
+        <div className="rounded-xl border border-gray-100 bg-white p-5">
+          <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-4">
+            <FolderOpen className="h-4 w-4 text-gray-400" />
+            My Projects
+          </h3>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {data.myProjects.map((project) => (
+              <Link
+                key={project.id}
+                href={`/projects/${project.id}`}
+                className="flex items-center gap-2.5 rounded-lg border border-gray-100 px-3 py-2.5 hover:bg-gray-50 transition-colors"
+              >
+                <span className={`h-2 w-2 rounded-full shrink-0 ${project.status === 'active' ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+                <p className="truncate text-sm font-medium text-gray-800">{project.name}</p>
+                <ArrowRight className="h-3.5 w-3.5 text-gray-300 ml-auto shrink-0" />
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Recent activity */}
       <div className="rounded-xl border border-gray-100 bg-white p-5">
@@ -273,7 +300,7 @@ export default function DashboardPage() {
         <div className="mx-auto max-w-6xl">
           {isAdmin
             ? <AdminDashboardView companyId={user?.companyId ?? ''} />
-            : <StaffDashboardView />
+            : <EmployeeDashboardView />
           }
         </div>
       </main>

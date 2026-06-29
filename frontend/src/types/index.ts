@@ -239,6 +239,12 @@ export interface AdminDashboard {
   recentActivity: ActivityItem[];
 }
 
+export interface DashboardProject {
+  id: string;
+  name: string;
+  status: ProjectStatus;
+}
+
 export interface DashboardSprint {
   id: string;
   name: string;
@@ -263,6 +269,7 @@ export interface StaffDashboard {
   myTasks: TaskStatusBreakdown;
   upcomingTasks: DashboardTask[];
   activeSprints: DashboardSprint[];
+  myProjects: DashboardProject[];
   recentActivity: ActivityItem[];
 }
 

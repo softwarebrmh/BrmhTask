@@ -45,10 +45,10 @@ function StaffPageContent() {
   return (
     <>
       <Header
-        title="Staff"
+        title="Employees"
         actions={
           <Button size="sm" onClick={() => setShowInvite(true)}>
-            <Plus className="h-4 w-4" /> Invite Staff
+            <Plus className="h-4 w-4" /> Invite Employee
           </Button>
         }
       />
@@ -84,7 +84,7 @@ function StaffPageContent() {
               <tbody className="divide-y divide-gray-100">
                 {staff.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-gray-400">No staff members found</td>
+                    <td colSpan={4} className="px-4 py-8 text-center text-gray-400">No employees found</td>
                   </tr>
                 ) : (
                   staff.map((s) => (
@@ -137,7 +137,7 @@ function StaffPageContent() {
         )}
       </main>
 
-      <Modal open={showInvite} onClose={() => { setShowInvite(false); reset(); }} title="Invite Staff Member">
+      <Modal open={showInvite} onClose={() => { setShowInvite(false); reset(); }} title="Invite Employee">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <Input
             label="Email address"

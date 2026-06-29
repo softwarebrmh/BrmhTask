@@ -76,7 +76,7 @@ export class DashboardService {
     const companyId = user.companyId;
     if (!companyId) throw new NotFoundException('No company context');
 
-    const [myTasks, myTaskStats, myActiveSprints, recentActivity] = await Promise.all([
+    const [myTasks, myTaskStats, sprintsWithMyTasks, mySprintMemberships, myProjectMemberships] = await Promise.all([
       this.prisma.task.findMany({
         where: {
           deletedAt: null,
@@ -103,6 +103,7 @@ export class DashboardService {
         },
         _count: { id: true },
       }),
+      // Sprints where user has assigned tasks
       this.prisma.sprint.findMany({
         where: {
           status: 'active',
@@ -114,19 +115,58 @@ export class DashboardService {
           project: { select: { id: true, name: true } },
           _count: { select: { tasks: { where: { deletedAt: null } } } },
         },
-        take: 5,
       }),
-      this.prisma.auditTrail.findMany({
-        where: { companyId, actorId: user.sub },
-        orderBy: { createdAt: 'desc' },
-        take: 5,
+      // Sprints where user is a sprint member
+      this.prisma.sprintMember.findMany({
+        where: { userId: user.sub, sprint: { status: 'active', deletedAt: null } },
+        include: {
+          sprint: {
+            include: {
+              project: { select: { id: true, name: true } },
+              _count: { select: { tasks: { where: { deletedAt: null } } } },
+            },
+          },
+        },
+      }),
+      // Projects where user is a project member
+      this.prisma.projectMember.findMany({
+        where: { userId: user.sub, project: { deletedAt: null, companyId } },
+        include: {
+          project: { select: { id: true, name: true, status: true } },
+        },
+        orderBy: { addedAt: 'desc' },
       }),
     ]);
+
+    // Merge active sprints (dedup by id)
+    const sprintMap = new Map<string, any>();
+    for (const s of sprintsWithMyTasks) sprintMap.set(s.id, s);
+    for (const m of mySprintMemberships) {
+      if (!sprintMap.has(m.sprint.id)) sprintMap.set(m.sprint.id, m.sprint);
+    }
+    const activeSprints = Array.from(sprintMap.values()).slice(0, 6);
 
     const taskStatusMap: Record<string, number> = {};
     for (const group of myTaskStats) {
       taskStatusMap[group.status] = group._count.id;
     }
+
+    // Fetch activity relevant to this employee: their own actions + events on their tasks
+    const myTaskIds = myTasks.map((t) => t.id);
+    const recentActivity = await this.prisma.auditTrail.findMany({
+      where: {
+        companyId,
+        OR: [
+          { actorId: user.sub },
+          ...(myTaskIds.length > 0
+            ? [{ entityId: { in: myTaskIds }, action: { in: ['TASK_ASSIGNED', 'TASK_STATUS_CHANGED', 'TASK_COMPLETED', 'TASK_UPDATED'] as any } }]
+            : []),
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+      include: { actor: { select: { id: true, fullName: true, email: true, avatarUrl: true } } },
+    });
 
     return {
       success: true,
@@ -145,7 +185,7 @@ export class DashboardService {
           plannedDueDate: t.plannedDueDate,
           sprint: t.sprint,
         })),
-        activeSprints: myActiveSprints.map((s) => ({
+        activeSprints: activeSprints.map((s) => ({
           id: s.id,
           name: s.name,
           goal: s.goal,
@@ -153,13 +193,19 @@ export class DashboardService {
           project: s.project,
           startDate: s.startDate,
           endDate: s.endDate,
-          taskCount: s._count.tasks,
+          taskCount: s._count?.tasks ?? 0,
+        })),
+        myProjects: myProjectMemberships.map((m) => ({
+          id: m.project.id,
+          name: m.project.name,
+          status: m.project.status,
         })),
         recentActivity: recentActivity.map((a) => ({
           id: a.id,
           action: a.action,
           entityType: a.entityType,
           entityId: a.entityId,
+          actor: a.actor,
           createdAt: a.createdAt,
         })),
       },

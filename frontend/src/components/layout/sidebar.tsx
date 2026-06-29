@@ -84,7 +84,7 @@ export function Sidebar() {
             <Avatar name={user.fullName} src={user.avatarUrl} size="sm" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-semibold text-gray-900">{user.fullName}</p>
-              <p className="truncate text-xs text-gray-400 capitalize">{user.role}</p>
+              <p className="truncate text-xs text-gray-400 capitalize">{user.role === 'staff' ? 'Employee' : 'Admin'}</p>
             </div>
           </div>
         )}
