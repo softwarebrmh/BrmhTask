@@ -1,0 +1,449 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────
+
+enum UserRole {
+  admin
+  staff
+}
+
+enum StaffStatus {
+  invited
+  active
+  suspended
+}
+
+enum ProjectStatus {
+  active
+  archived
+}
+
+enum SprintStatus {
+  draft
+  active
+  review
+  completed
+}
+
+enum TaskStatus {
+  todo
+  in_progress
+  review
+  done
+}
+
+enum TaskPriority {
+  low
+  medium
+  high
+  critical
+}
+
+enum AuditEntityType {
+  company
+  staff
+  project
+  sprint
+  task
+  attachment
+  note
+  comment
+  step
+}
+
+enum AuditAction {
+  COMPANY_CREATED
+  COMPANY_UPDATED
+  STAFF_INVITED
+  STAFF_JOINED
+  STAFF_SUSPENDED
+  STAFF_ACTIVATED
+  PROJECT_CREATED
+  PROJECT_UPDATED
+  PROJECT_ARCHIVED
+  SPRINT_CREATED
+  SPRINT_STARTED
+  SPRINT_ENDED
+  SPRINT_UPDATED
+  TASK_CREATED
+  TASK_UPDATED
+  TASK_STATUS_CHANGED
+  TASK_PRIORITY_CHANGED
+  TASK_ASSIGNED
+  TASK_UNASSIGNED
+  TASK_DUE_DATE_CHANGED
+  TASK_EFFORT_UPDATED
+  TASK_COMPLETED
+  TASK_DELETED
+  STEP_CHECKED
+  STEP_UNCHECKED
+  STEP_CREATED
+  STEP_DELETED
+  ATTACHMENT_UPLOADED
+  ATTACHMENT_DELETED
+  NOTE_CREATED
+  NOTE_UPDATED
+  COMMENT_ADDED
+  COMMENT_EDITED
+  COMMENT_DELETED
+  REPLY_ADDED
+  REACTION_ADDED
+  REACTION_REMOVED
+}
+
+// ─────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────
+
+model User {
+  id               String    @id @default(uuid())
+  email            String    @unique
+  passwordHash     String    @map("password_hash")
+  fullName         String    @map("full_name")
+  avatarUrl        String?   @map("avatar_url")
+  role             UserRole  @default(staff)
+  isEmailVerified  Boolean   @default(false) @map("is_email_verified")
+  resetPasswordToken     String?   @unique @map("reset_password_token")
+  resetPasswordExpiresAt DateTime? @map("reset_password_expires_at")
+  deletedAt        DateTime? @map("deleted_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  ownedCompanies   Company[]        @relation("CompanyOwner")
+  companyStaff     CompanyStaff[]
+  createdProjects  Project[]        @relation("ProjectCreatedBy")
+  createdSprints   Sprint[]         @relation("SprintCreatedBy")
+  ownedTasks       Task[]           @relation("TaskOwner")
+  createdTasks     Task[]           @relation("TaskCreatedBy")
+  taskAssignments  TaskAssignee[]   @relation("AssignedUser")
+  assignedByMe     TaskAssignee[]   @relation("AssignedBy")
+  checkedSteps     TaskStep[]       @relation("StepCheckedBy")
+  uploadedFiles    Attachment[]
+  notes            Note[]
+  noteVersions     NoteVersion[]
+  comments         Comment[]
+  commentReplies   CommentReply[]
+  commentReactions CommentReaction[]
+  auditTrails      AuditTrail[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────
+// COMPANY
+// ─────────────────────────────────────────
+
+model Company {
+  id                String    @id @default(uuid())
+  name              String
+  slug              String    @unique
+  logoUrl           String?   @map("logo_url")
+  ownerId           String    @map("owner_id")
+  timezone          String    @default("UTC")
+  workingHoursStart String    @default("09:00") @map("working_hours_start")
+  workingHoursEnd   String    @default("18:00") @map("working_hours_end")
+  deletedAt         DateTime? @map("deleted_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  owner       User           @relation("CompanyOwner", fields: [ownerId], references: [id])
+  staff       CompanyStaff[]
+  projects    Project[]
+  auditTrails AuditTrail[]
+
+  @@map("companies")
+}
+
+// ─────────────────────────────────────────
+// COMPANY STAFF
+// ─────────────────────────────────────────
+
+model CompanyStaff {
+  id              String      @id @default(uuid())
+  companyId       String      @map("company_id")
+  userId          String?     @map("user_id")
+  email           String
+  designation     String?
+  status          StaffStatus @default(invited)
+  inviteToken     String?     @unique @map("invite_token")
+  inviteExpiresAt DateTime?   @map("invite_expires_at")
+  joinedAt        DateTime?   @map("joined_at")
+  lastActiveAt    DateTime?   @map("last_active_at")
+  deletedAt       DateTime?   @map("deleted_at")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+  user    User?   @relation(fields: [userId], references: [id])
+
+  @@unique([companyId, userId])
+  @@map("company_staff")
+}
+
+// ─────────────────────────────────────────
+// PROJECT
+// ─────────────────────────────────────────
+
+model Project {
+  id          String        @id @default(uuid())
+  companyId   String        @map("company_id")
+  name        String
+  description String?
+  status      ProjectStatus @default(active)
+  createdBy   String        @map("created_by")
+  deletedAt   DateTime?     @map("deleted_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  company Company  @relation(fields: [companyId], references: [id])
+  creator User     @relation("ProjectCreatedBy", fields: [createdBy], references: [id])
+  sprints Sprint[]
+
+  @@map("projects")
+}
+
+// ─────────────────────────────────────────
+// SPRINT
+// ─────────────────────────────────────────
+
+model Sprint {
+  id          String       @id @default(uuid())
+  projectId   String       @map("project_id")
+  name        String
+  goal        String?
+  status      SprintStatus @default(draft)
+  startDate   DateTime?    @map("start_date") @db.Date
+  endDate     DateTime?    @map("end_date") @db.Date
+  createdBy   String       @map("created_by")
+  deletedAt   DateTime?    @map("deleted_at")
+  createdAt   DateTime     @default(now()) @map("created_at")
+  updatedAt   DateTime     @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id])
+  creator User    @relation("SprintCreatedBy", fields: [createdBy], references: [id])
+  tasks   Task[]
+
+  @@map("sprints")
+}
+
+// ─────────────────────────────────────────
+// TASK
+// ─────────────────────────────────────────
+
+model Task {
+  id                String       @id @default(uuid())
+  sprintId          String       @map("sprint_id")
+  parentTaskId      String?      @map("parent_task_id")
+  name              String
+  description       String?
+  status            TaskStatus   @default(todo)
+  priority          TaskPriority @default(medium)
+  startDate         DateTime?    @map("start_date") @db.Date
+  plannedDueDate    DateTime?    @map("planned_due_date") @db.Date
+  actualDueDate     DateTime?    @map("actual_due_date") @db.Date
+  plannedEffortPh   Decimal      @default(0) @map("planned_effort_ph") @db.Decimal(8, 2)
+  estimatedEffortPh Decimal      @default(0) @map("estimated_effort_ph") @db.Decimal(8, 2)
+  actualEffortPh    Decimal      @default(0) @map("actual_effort_ph") @db.Decimal(8, 2)
+  ownerId           String       @map("owner_id")
+  createdBy         String       @map("created_by")
+  deletedAt         DateTime?    @map("deleted_at")
+  createdAt         DateTime     @default(now()) @map("created_at")
+  updatedAt         DateTime     @updatedAt @map("updated_at")
+
+  sprint      Sprint         @relation(fields: [sprintId], references: [id])
+  parentTask  Task?          @relation("SubTasks", fields: [parentTaskId], references: [id])
+  subTasks    Task[]         @relation("SubTasks")
+  owner       User           @relation("TaskOwner", fields: [ownerId], references: [id])
+  creator     User           @relation("TaskCreatedBy", fields: [createdBy], references: [id])
+  assignees   TaskAssignee[]
+  steps       TaskStep[]
+  attachments Attachment[]
+  notes       Note[]
+  comments    Comment[]
+
+  @@map("tasks")
+}
+
+// ─────────────────────────────────────────
+// TASK ASSIGNEES
+// ─────────────────────────────────────────
+
+model TaskAssignee {
+  id           String    @id @default(uuid())
+  taskId       String    @map("task_id")
+  userId       String    @map("user_id")
+  assignedBy   String    @map("assigned_by")
+  assignedAt   DateTime  @default(now()) @map("assigned_at")
+  unassignedAt DateTime? @map("unassigned_at")
+  isActive     Boolean   @default(true) @map("is_active")
+
+  task           Task @relation(fields: [taskId], references: [id])
+  user           User @relation("AssignedUser", fields: [userId], references: [id])
+  assignedByUser User @relation("AssignedBy", fields: [assignedBy], references: [id])
+
+  @@map("task_assignees")
+}
+
+// ─────────────────────────────────────────
+// TASK STEPS
+// ─────────────────────────────────────────
+
+model TaskStep {
+  id        String    @id @default(uuid())
+  taskId    String    @map("task_id")
+  title     String
+  isChecked Boolean   @default(false) @map("is_checked")
+  order     Int       @default(0)
+  checkedAt DateTime? @map("checked_at")
+  checkedBy String?   @map("checked_by")
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  task          Task  @relation(fields: [taskId], references: [id])
+  checkedByUser User? @relation("StepCheckedBy", fields: [checkedBy], references: [id])
+
+  @@map("task_steps")
+}
+
+// ─────────────────────────────────────────
+// ATTACHMENTS
+// ─────────────────────────────────────────
+
+model Attachment {
+  id         String    @id @default(uuid())
+  taskId     String    @map("task_id")
+  uploaderId String    @map("uploader_id")
+  fileName   String    @map("file_name")
+  filePath   String    @map("file_path")
+  fileSize   BigInt    @map("file_size")
+  mimeType   String    @map("mime_type")
+  deletedAt  DateTime? @map("deleted_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  task     Task @relation(fields: [taskId], references: [id])
+  uploader User @relation(fields: [uploaderId], references: [id])
+
+  @@map("attachments")
+}
+
+// ─────────────────────────────────────────
+// NOTES
+// ─────────────────────────────────────────
+
+model Note {
+  id        String    @id @default(uuid())
+  taskId    String    @map("task_id")
+  authorId  String    @map("author_id")
+  title     String?
+  content   String
+  version   Int       @default(1)
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  task     Task          @relation(fields: [taskId], references: [id])
+  author   User          @relation(fields: [authorId], references: [id])
+  versions NoteVersion[]
+
+  @@map("notes")
+}
+
+model NoteVersion {
+  id        String   @id @default(uuid())
+  noteId    String   @map("note_id")
+  content   String
+  version   Int
+  createdBy String   @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  note    Note @relation(fields: [noteId], references: [id])
+  creator User @relation(fields: [createdBy], references: [id])
+
+  @@unique([noteId, version])
+  @@map("note_versions")
+}
+
+// ─────────────────────────────────────────
+// COMMENTS
+// ─────────────────────────────────────────
+
+model Comment {
+  id        String    @id @default(uuid())
+  taskId    String    @map("task_id")
+  authorId  String    @map("author_id")
+  content   String
+  metadata  Json?
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  task      Task              @relation(fields: [taskId], references: [id])
+  author    User              @relation(fields: [authorId], references: [id])
+  replies   CommentReply[]
+  reactions CommentReaction[]
+
+  @@map("comments")
+}
+
+model CommentReply {
+  id        String    @id @default(uuid())
+  commentId String    @map("comment_id")
+  authorId  String    @map("author_id")
+  content   String
+  metadata  Json?
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  comment Comment @relation(fields: [commentId], references: [id])
+  author  User    @relation(fields: [authorId], references: [id])
+
+  @@map("comment_replies")
+}
+
+model CommentReaction {
+  id        String   @id @default(uuid())
+  commentId String   @map("comment_id")
+  userId    String   @map("user_id")
+  emoji     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  comment Comment @relation(fields: [commentId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([commentId, userId, emoji])
+  @@map("comment_reactions")
+}
+
+// ─────────────────────────────────────────
+// AUDIT TRAILS
+// ─────────────────────────────────────────
+
+model AuditTrail {
+  id         String          @id @default(uuid())
+  companyId  String          @map("company_id")
+  entityType AuditEntityType @map("entity_type")
+  entityId   String          @map("entity_id")
+  action     AuditAction
+  actorId    String          @map("actor_id")
+  actorName  String          @map("actor_name")
+  before     Json?
+  after      Json?
+  metadata   Json?
+  createdAt  DateTime        @default(now()) @map("created_at")
+
+  company Company @relation(fields: [companyId], references: [id])
+  actor   User    @relation(fields: [actorId], references: [id])
+
+  @@map("audit_trails")
+}

@@ -1,0 +1,3120 @@
+openapi: 3.1.0
+
+info:
+  title: BHRM Teams API
+  version: 2.0.0
+  description: |
+    Enterprise Task-Centric Execution Platform — REST API.
+
+    ## Authentication
+    All protected routes require `Authorization: Bearer <token>` obtained from
+    `POST /auth/login` or `POST /auth/refresh`.
+
+    ## Response envelopes
+    | Type | Shape |
+    |---|---|
+    | Single resource | `{ "success": true, "data": { … } }` |
+    | Collection | `{ "success": true, "data": [ … ], "meta": { total, page, limit, totalPages } }` |
+    | Error | `{ "success": false, "error": { "code": "…", "message": "…", "statusCode": 4xx } }` |
+
+    ## Role model
+    | Role | Description |
+    |---|---|
+    | `admin` | Company owner — full access to all company resources |
+    | `staff` | Invited member — access scoped to assigned tasks |
+
+    ## Endpoint naming conventions
+    - Resource-based URLs, nouns only
+    - State transitions via `PATCH /{resource}/{id}/status`
+    - Bulk assignment via `PATCH /{resource}/{id}/assignees`
+    - Avoid custom action verbs in URLs
+
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local development
+
+tags:
+  - name: Auth
+    description: Authentication — login, logout, token refresh, password recovery
+  - name: Users
+    description: Current user profile, task list, activity feed
+  - name: Company
+    description: Company CRUD, analytics, activity log
+  - name: Staff
+    description: Staff invite/manage lifecycle, individual profiles and stats
+  - name: Projects
+    description: Project CRUD, dashboard, analytics
+  - name: Sprints
+    description: Sprint lifecycle, dashboard, metrics
+  - name: Tasks
+    description: Task CRUD, status, effort, assignees, dashboard, audit
+  - name: Steps
+    description: Task checklist steps
+  - name: Attachments
+    description: File upload and download per task
+  - name: Notes
+    description: Notes with full version history per task
+  - name: Comments
+    description: Comments, threaded replies, emoji reactions
+  - name: Dashboard
+    description: Aggregated widgets for admin and staff views
+  - name: Notifications
+    description: In-app notifications — assignments, mentions, status changes
+  - name: Activities
+    description: Company-wide and per-task activity timeline
+  - name: Health
+    description: Service health check
+
+security:
+  - bearerAuth: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COMPONENTS
+# ─────────────────────────────────────────────────────────────────────────────
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  # ── Schemas ────────────────────────────────────────────────────────────────
+  schemas:
+
+    # ── Enumerations ──────────────────────────────────────────────────────────
+
+    UserRole:
+      type: string
+      enum: [admin, staff]
+
+    StaffStatus:
+      type: string
+      enum: [invited, active, suspended]
+
+    ProjectStatus:
+      type: string
+      enum: [active, archived]
+
+    SprintStatus:
+      type: string
+      enum: [draft, active, completed]
+
+    TaskStatus:
+      type: string
+      enum: [todo, in_progress, review, done]
+
+    TaskPriority:
+      type: string
+      enum: [low, medium, high, critical]
+
+    NotificationType:
+      type: string
+      enum: [task_assigned, task_status_changed, comment_added, mention, invite_accepted, sprint_started, sprint_completed]
+
+    ActivityAction:
+      type: string
+      enum: [task_created, task_updated, task_deleted, task_status_changed, task_assigned, task_unassigned, comment_added, comment_edited, comment_deleted, note_created, note_updated, note_deleted, attachment_uploaded, attachment_deleted, step_checked, step_unchecked, sprint_started, sprint_completed, project_archived, staff_invited, staff_suspended, staff_activated]
+
+    # ── Pagination ────────────────────────────────────────────────────────────
+
+    PaginatedMeta:
+      type: object
+      properties:
+        total:      { type: integer, example: 42 }
+        page:       { type: integer, example: 1 }
+        limit:      { type: integer, example: 20 }
+        totalPages: { type: integer, example: 3 }
+
+    # ── Error ─────────────────────────────────────────────────────────────────
+
+    ErrorResponse:
+      type: object
+      properties:
+        success: { type: boolean, example: false }
+        error:
+          type: object
+          properties:
+            code:       { type: string, example: NOT_FOUND }
+            message:    { type: string, example: Resource not found }
+            statusCode: { type: integer, example: 404 }
+
+    # ── User ─────────────────────────────────────────────────────────────────
+
+    UserSummary:
+      type: object
+      properties:
+        id:        { type: string, format: uuid }
+        fullName:  { type: string, example: Jane Smith }
+        email:     { type: string, format: email }
+        avatarUrl: { type: string, format: uri, nullable: true }
+
+    UserProfile:
+      allOf:
+        - $ref: '#/components/schemas/UserSummary'
+        - type: object
+          properties:
+            role:            { $ref: '#/components/schemas/UserRole' }
+            companyId:       { type: string, format: uuid, nullable: true }
+            isEmailVerified: { type: boolean }
+            lastActiveAt:    { type: string, format: date-time, nullable: true }
+            createdAt:       { type: string, format: date-time }
+            updatedAt:       { type: string, format: date-time }
+
+    # ── Auth ─────────────────────────────────────────────────────────────────
+
+    AuthTokenPair:
+      type: object
+      properties:
+        accessToken:  { type: string, description: 'Short-lived JWT (7d default)' }
+        refreshToken: { type: string, description: 'Long-lived opaque token (30d)' }
+
+    AuthResponse:
+      type: object
+      properties:
+        accessToken:  { type: string }
+        refreshToken: { type: string }
+        user:         { $ref: '#/components/schemas/UserProfile' }
+
+    # ── Company ───────────────────────────────────────────────────────────────
+
+    Company:
+      type: object
+      properties:
+        id:                { type: string, format: uuid }
+        name:              { type: string, example: Acme Corp }
+        slug:              { type: string, example: acme-corp-a3f9b2 }
+        logoUrl:           { type: string, format: uri, nullable: true }
+        workingHoursStart: { type: string, example: '09:00' }
+        workingHoursEnd:   { type: string, example: '18:00' }
+        ownerId:           { type: string, format: uuid }
+        createdAt:         { type: string, format: date-time }
+        updatedAt:         { type: string, format: date-time }
+
+    CompanyAnalytics:
+      type: object
+      properties:
+        staff:
+          type: object
+          properties:
+            total:   { type: integer }
+            active:  { type: integer }
+            pending: { type: integer }
+        projects:
+          type: object
+          properties:
+            total:    { type: integer }
+            active:   { type: integer }
+            archived: { type: integer }
+        tasks:
+          type: object
+          properties:
+            total:      { type: integer }
+            todo:       { type: integer }
+            inProgress: { type: integer }
+            review:     { type: integer }
+            done:       { type: integer }
+            overdue:    { type: integer }
+        sprints:
+          type: object
+          properties:
+            active:    { type: integer }
+            completed: { type: integer }
+        velocityPhPerSprint: { type: number, description: 'Average effort hours completed per sprint over last 3 sprints' }
+
+    # ── Staff ─────────────────────────────────────────────────────────────────
+
+    StaffMember:
+      type: object
+      properties:
+        id:        { type: string, format: uuid }
+        user:      { $ref: '#/components/schemas/UserSummary' }
+        companyId: { type: string, format: uuid }
+        status:    { $ref: '#/components/schemas/StaffStatus' }
+        joinedAt:  { type: string, format: date-time, nullable: true }
+        invitedAt: { type: string, format: date-time }
+
+    StaffStats:
+      type: object
+      properties:
+        tasks:
+          type: object
+          properties:
+            total:      { type: integer }
+            todo:       { type: integer }
+            inProgress: { type: integer }
+            review:     { type: integer }
+            done:       { type: integer }
+            overdue:    { type: integer }
+        totalEffortPhLogged: { type: number }
+        avgSlippagePh:       { type: number }
+        completionRate:      { type: number, minimum: 0, maximum: 100, description: 'Percentage of assigned tasks completed' }
+        activeSprints:       { type: integer }
+
+    # ── Project ───────────────────────────────────────────────────────────────
+
+    Project:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        name:        { type: string, example: Platform V2 }
+        description: { type: string, nullable: true }
+        status:      { $ref: '#/components/schemas/ProjectStatus' }
+        companyId:   { type: string, format: uuid }
+        createdBy:   { $ref: '#/components/schemas/UserSummary' }
+        sprintCount: { type: integer }
+        createdAt:   { type: string, format: date-time }
+        updatedAt:   { type: string, format: date-time }
+
+    ProjectDashboard:
+      type: object
+      properties:
+        project:     { $ref: '#/components/schemas/Project' }
+        activeSprint:
+          nullable: true
+          $ref: '#/components/schemas/Sprint'
+        tasks:       { $ref: '#/components/schemas/TaskStatusBreakdown' }
+        staffCount:  { type: integer }
+        recentActivity:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityItem' }
+
+    ProjectAnalytics:
+      type: object
+      properties:
+        completedSprints: { type: integer }
+        totalEffortPh:    { type: number }
+        avgSlippagePh:    { type: number }
+        taskCompletionRate: { type: number, minimum: 0, maximum: 100 }
+        sprintVelocity:
+          type: array
+          description: Last 5 sprints
+          items:
+            type: object
+            properties:
+              sprintId:   { type: string, format: uuid }
+              sprintName: { type: string }
+              plannedPh:  { type: number }
+              actualPh:   { type: number }
+              slippagePh: { type: number }
+              completedTasks: { type: integer }
+
+    # ── Sprint ────────────────────────────────────────────────────────────────
+
+    Sprint:
+      type: object
+      properties:
+        id:        { type: string, format: uuid }
+        projectId: { type: string, format: uuid }
+        name:      { type: string, example: Sprint 1 }
+        goal:      { type: string, nullable: true }
+        status:    { $ref: '#/components/schemas/SprintStatus' }
+        startDate: { type: string, format: date, nullable: true }
+        endDate:   { type: string, format: date, nullable: true }
+        taskCount: { type: integer }
+        createdAt: { type: string, format: date-time }
+
+    SprintDashboard:
+      type: object
+      properties:
+        sprint:      { $ref: '#/components/schemas/Sprint' }
+        tasks:       { $ref: '#/components/schemas/TaskStatusBreakdown' }
+        staffCount:  { type: integer }
+        daysRemaining: { type: integer, nullable: true }
+        progressPercentage: { type: integer, minimum: 0, maximum: 100 }
+        recentActivity:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityItem' }
+
+    SprintMetrics:
+      type: object
+      properties:
+        plannedEffortPh:   { type: number }
+        actualEffortPh:    { type: number }
+        slippagePh:        { type: number }
+        completedTasks:    { type: integer }
+        totalTasks:        { type: integer }
+        completionRate:    { type: number, minimum: 0, maximum: 100 }
+        overdueTaskCount:  { type: integer }
+        staffEffort:
+          type: array
+          description: Per-staff effort breakdown
+          items:
+            type: object
+            properties:
+              user:           { $ref: '#/components/schemas/UserSummary' }
+              assignedTasks:  { type: integer }
+              completedTasks: { type: integer }
+              loggedEffortPh: { type: number }
+
+    # ── Task ──────────────────────────────────────────────────────────────────
+
+    StepProgress:
+      type: object
+      properties:
+        total:      { type: integer }
+        completed:  { type: integer }
+        percentage: { type: integer, minimum: 0, maximum: 100 }
+
+    TaskStatusBreakdown:
+      type: object
+      properties:
+        todo:       { type: integer }
+        inProgress: { type: integer }
+        review:     { type: integer }
+        done:       { type: integer }
+        total:      { type: integer }
+        overdue:    { type: integer }
+
+    Task:
+      type: object
+      properties:
+        id:                { type: string, format: uuid }
+        sprintId:          { type: string, format: uuid }
+        parentTaskId:      { type: string, format: uuid, nullable: true }
+        name:              { type: string }
+        description:       { type: string, nullable: true }
+        status:            { $ref: '#/components/schemas/TaskStatus' }
+        priority:          { $ref: '#/components/schemas/TaskPriority' }
+        startDate:         { type: string, format: date, nullable: true }
+        plannedDueDate:    { type: string, format: date, nullable: true }
+        actualDueDate:     { type: string, format: date, nullable: true }
+        plannedEffortPh:   { type: number }
+        estimatedEffortPh: { type: number }
+        actualEffortPh:    { type: number }
+        slippagePh:
+          type: number
+          description: 'actualEffortPh − plannedEffortPh; computed on read, never stored'
+        isOverdue:         { type: boolean }
+        stepProgress:      { $ref: '#/components/schemas/StepProgress' }
+        owner:             { $ref: '#/components/schemas/UserSummary' }
+        assignees:
+          type: array
+          items: { $ref: '#/components/schemas/UserSummary' }
+        subTaskCount: { type: integer }
+        createdAt:    { type: string, format: date-time }
+        updatedAt:    { type: string, format: date-time }
+
+    TaskDetail:
+      allOf:
+        - $ref: '#/components/schemas/Task'
+        - type: object
+          properties:
+            sprint:
+              nullable: true
+              type: object
+              properties:
+                id:        { type: string, format: uuid }
+                projectId: { type: string, format: uuid }
+                name:      { type: string }
+                goal:      { type: string, nullable: true }
+                status:    { $ref: '#/components/schemas/SprintStatus' }
+                startDate: { type: string, format: date, nullable: true }
+                endDate:   { type: string, format: date, nullable: true }
+            steps:
+              type: array
+              items: { $ref: '#/components/schemas/TaskStep' }
+            recentComments:
+              type: array
+              items: { $ref: '#/components/schemas/Comment' }
+            recentAttachments:
+              type: array
+              items: { $ref: '#/components/schemas/Attachment' }
+
+    TaskDashboard:
+      type: object
+      properties:
+        task:         { $ref: '#/components/schemas/TaskDetail' }
+        stepProgress: { $ref: '#/components/schemas/StepProgress' }
+        slippagePh:   { type: number }
+        isOverdue:    { type: boolean }
+        daysSinceLastUpdate: { type: integer }
+        commentCount:    { type: integer }
+        attachmentCount: { type: integer }
+        noteCount:       { type: integer }
+
+    TaskStats:
+      type: object
+      properties:
+        totalEffortPh:   { type: number }
+        slippagePh:      { type: number }
+        timeToComplete:
+          type: integer
+          nullable: true
+          description: 'Calendar days from start to actual completion (null if not done)'
+        commentCount:    { type: integer }
+        attachmentCount: { type: integer }
+        noteCount:       { type: integer }
+        stepCompletion:  { $ref: '#/components/schemas/StepProgress' }
+        assigneeHistory: { type: integer, description: 'Total unique assignees over task lifetime' }
+
+    TaskAssigneeHistoryEntry:
+      type: object
+      properties:
+        user:         { $ref: '#/components/schemas/UserSummary' }
+        assignedBy:   { $ref: '#/components/schemas/UserSummary' }
+        assignedAt:   { type: string, format: date-time }
+        unassignedAt: { type: string, format: date-time, nullable: true }
+        isActive:     { type: boolean }
+
+    # ── Step ──────────────────────────────────────────────────────────────────
+
+    TaskStep:
+      type: object
+      properties:
+        id:        { type: string, format: uuid }
+        taskId:    { type: string, format: uuid }
+        title:     { type: string }
+        isChecked: { type: boolean }
+        order:     { type: integer }
+        checkedAt: { type: string, format: date-time, nullable: true }
+        checkedBy: { $ref: '#/components/schemas/UserSummary', nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    # ── Attachment ────────────────────────────────────────────────────────────
+
+    Attachment:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        taskId:      { type: string, format: uuid }
+        fileName:    { type: string, example: design-spec.pdf }
+        fileSize:    { type: integer, description: 'Bytes; max 10 485 760 (10 MB)' }
+        mimeType:    { type: string, example: application/pdf }
+        description: { type: string, nullable: true }
+        uploader:    { $ref: '#/components/schemas/UserSummary' }
+        downloadUrl: { type: string, format: uri }
+        createdAt:   { type: string, format: date-time }
+        updatedAt:   { type: string, format: date-time }
+
+    # ── Note ─────────────────────────────────────────────────────────────────
+
+    Note:
+      type: object
+      properties:
+        id:        { type: string, format: uuid }
+        taskId:    { type: string, format: uuid }
+        title:     { type: string, nullable: true }
+        content:   { type: string }
+        author:    { $ref: '#/components/schemas/UserSummary' }
+        versionCount: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    NoteVersion:
+      type: object
+      properties:
+        id:        { type: string, format: uuid }
+        noteId:    { type: string, format: uuid }
+        content:   { type: string }
+        version:   { type: integer }
+        createdBy: { $ref: '#/components/schemas/UserSummary' }
+        createdAt: { type: string, format: date-time }
+
+    NoteWithVersions:
+      allOf:
+        - $ref: '#/components/schemas/Note'
+        - type: object
+          properties:
+            versions:
+              type: array
+              items: { $ref: '#/components/schemas/NoteVersion' }
+
+    # ── Comment ───────────────────────────────────────────────────────────────
+
+    CommentReply:
+      type: object
+      properties:
+        id:        { type: string, format: uuid }
+        content:   { type: string }
+        author:    { $ref: '#/components/schemas/UserSummary', nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    CommentReaction:
+      type: object
+      properties:
+        id:    { type: string, format: uuid }
+        emoji: { type: string, example: '👍' }
+        user:  { $ref: '#/components/schemas/UserSummary' }
+
+    CommentMention:
+      type: object
+      properties:
+        userId:   { type: string, format: uuid }
+        fullName: { type: string }
+        email:    { type: string, format: email }
+
+    Comment:
+      type: object
+      properties:
+        id:      { type: string, format: uuid }
+        taskId:  { type: string, format: uuid }
+        content:
+          type: string
+          description: 'Content of the comment; "[deleted]" if soft-deleted'
+        author:
+          $ref: '#/components/schemas/UserSummary'
+          nullable: true
+        mentions:
+          type: array
+          items: { $ref: '#/components/schemas/CommentMention' }
+        replies:
+          type: array
+          items: { $ref: '#/components/schemas/CommentReply' }
+        reactions:
+          type: array
+          items: { $ref: '#/components/schemas/CommentReaction' }
+        isEdited:  { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    # ── Activity ──────────────────────────────────────────────────────────────
+
+    ActivityItem:
+      type: object
+      properties:
+        id:         { type: string, format: uuid }
+        action:     { $ref: '#/components/schemas/ActivityAction' }
+        entityType:
+          type: string
+          enum: [task, sprint, project, comment, note, attachment, step, staff, company]
+        entityId:   { type: string, format: uuid }
+        entityName: { type: string, nullable: true }
+        actor:      { $ref: '#/components/schemas/UserSummary', nullable: true }
+        metadata:   { type: object, additionalProperties: true, nullable: true }
+        createdAt:  { type: string, format: date-time }
+
+    # ── Notification ──────────────────────────────────────────────────────────
+
+    Notification:
+      type: object
+      properties:
+        id:       { type: string, format: uuid }
+        type:     { $ref: '#/components/schemas/NotificationType' }
+        title:    { type: string }
+        body:     { type: string }
+        isRead:   { type: boolean }
+        actor:    { $ref: '#/components/schemas/UserSummary', nullable: true }
+        entityType:
+          type: string
+          enum: [task, sprint, project, comment, staff]
+          nullable: true
+        entityId: { type: string, format: uuid, nullable: true }
+        createdAt: { type: string, format: date-time }
+
+    # ── Dashboard ─────────────────────────────────────────────────────────────
+
+    AdminDashboard:
+      type: object
+      properties:
+        staff:
+          type: object
+          properties:
+            total:   { type: integer }
+            active:  { type: integer }
+            pending: { type: integer }
+        projects:
+          type: object
+          properties:
+            total:  { type: integer }
+            active: { type: integer }
+        sprints:
+          type: object
+          properties:
+            active: { type: integer }
+        tasks:    { $ref: '#/components/schemas/TaskStatusBreakdown' }
+        recentActivity:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityItem' }
+
+    StaffDashboard:
+      type: object
+      properties:
+        myTasks:      { $ref: '#/components/schemas/TaskStatusBreakdown' }
+        upcomingTasks:
+          type: array
+          items: { $ref: '#/components/schemas/Task' }
+        overdueTasks:
+          type: array
+          items: { $ref: '#/components/schemas/Task' }
+        activeSprints:
+          type: array
+          items: { $ref: '#/components/schemas/Sprint' }
+        recentActivity:
+          type: array
+          items: { $ref: '#/components/schemas/ActivityItem' }
+        unreadNotifications: { type: integer }
+
+  # ── Reusable responses ─────────────────────────────────────────────────────
+  responses:
+
+    Unauthorized:
+      description: Missing or invalid JWT token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+    Forbidden:
+      description: Insufficient role or resource ownership
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+    Conflict:
+      description: Duplicate record or constraint violation
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+    UnprocessableEntity:
+      description: Validation error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+    MessageOk:
+      description: Operation succeeded
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success: { type: boolean }
+              data:
+                type: object
+                properties:
+                  message: { type: string }
+
+  # ── Reusable parameters ────────────────────────────────────────────────────
+  parameters:
+
+    companyId:    { name: companyId,    in: path,  required: true, schema: { type: string, format: uuid } }
+    projectId:    { name: projectId,    in: path,  required: true, schema: { type: string, format: uuid } }
+    sprintId:     { name: sprintId,     in: path,  required: true, schema: { type: string, format: uuid } }
+    taskId:       { name: taskId,       in: path,  required: true, schema: { type: string, format: uuid } }
+    staffId:      { name: staffId,      in: path,  required: true, schema: { type: string, format: uuid } }
+    noteId:       { name: noteId,       in: path,  required: true, schema: { type: string, format: uuid } }
+    commentId:    { name: commentId,    in: path,  required: true, schema: { type: string, format: uuid } }
+    replyId:      { name: replyId,      in: path,  required: true, schema: { type: string, format: uuid } }
+    stepId:       { name: stepId,       in: path,  required: true, schema: { type: string, format: uuid } }
+    attachmentId: { name: attachmentId, in: path,  required: true, schema: { type: string, format: uuid } }
+    userId:       { name: userId,       in: path,  required: true, schema: { type: string, format: uuid } }
+    notifId:      { name: notifId,      in: path,  required: true, schema: { type: string, format: uuid } }
+
+    page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    search:
+      name: search
+      in: query
+      schema: { type: string }
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PATHS
+# ─────────────────────────────────────────────────────────────────────────────
+paths:
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # HEALTH
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /health:
+    get:
+      tags: [Health]
+      summary: Service health check
+      security: []
+      responses:
+        '200':
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:    { type: string, enum: [ok, degraded] }
+                  timestamp: { type: string, format: date-time }
+                  uptime:    { type: integer }
+                  services:
+                    type: object
+                    properties:
+                      database: { type: string, enum: [ok, error] }
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # AUTH
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /auth/signup:
+    post:
+      tags: [Auth]
+      summary: Register a new admin account and company
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, fullName, companyName]
+              properties:
+                email:       { type: string, format: email }
+                password:    { type: string, minLength: 8, description: 'Min 8 chars, ≥1 uppercase, ≥1 digit' }
+                fullName:    { type: string }
+                companyName: { type: string }
+      responses:
+        '201':
+          description: Account and company created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/AuthResponse' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Authenticate and receive access + refresh tokens
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:    { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/AuthResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Invalidate the current session (revoke refresh token)
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Issue a new access token using a valid refresh token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: New token pair issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/AuthTokenPair' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request a password-reset email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '200':
+          description: Reset email sent (always 200 to prevent email enumeration)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      message: { type: string }
+
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Set a new password using the reset token from email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token:    { type: string }
+                password: { type: string, minLength: 8 }
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '400': { description: Token expired or invalid }
+
+  /auth/accept-invite:
+    post:
+      tags: [Auth]
+      summary: Accept a staff invitation and activate account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, fullName, password]
+              properties:
+                token:    { type: string }
+                fullName: { type: string }
+                password: { type: string, minLength: 8 }
+      responses:
+        '200':
+          description: Invite accepted — tokens issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/AuthResponse' }
+        '400': { description: Token expired or already used }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Verify token and return current user
+      responses:
+        '200':
+          description: Current authenticated user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/UserProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # USERS
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /users/me:
+    get:
+      tags: [Users]
+      summary: Get current user profile
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/UserProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+    patch:
+      tags: [Users]
+      summary: Update current user profile (fullName)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fullName: { type: string }
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/UserProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /users/me/avatar:
+    patch:
+      tags: [Users]
+      summary: Upload or update profile avatar
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 'JPEG, PNG, WebP; max 5 MB'
+      responses:
+        '200':
+          description: Avatar updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      avatarUrl: { type: string, format: uri }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '415': { description: Unsupported image format }
+
+  /users/me/password:
+    patch:
+      tags: [Users]
+      summary: Change current user password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [currentPassword, newPassword]
+              properties:
+                currentPassword: { type: string }
+                newPassword:     { type: string, minLength: 8 }
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /users/me/tasks:
+    get:
+      tags: [Users]
+      summary: List tasks assigned to the current user
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/TaskStatus' }
+        - name: priority
+          in: query
+          schema: { $ref: '#/components/schemas/TaskPriority' }
+      responses:
+        '200':
+          description: Paginated task list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Task' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /users/me/activity:
+    get:
+      tags: [Users]
+      summary: Activity feed for the current user
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Paginated activity feed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ActivityItem' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # COMPANY
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /companies:
+    post:
+      tags: [Company]
+      summary: Create a company (one per admin account)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, workingHoursStart, workingHoursEnd]
+              properties:
+                name:              { type: string }
+                workingHoursStart: { type: string, pattern: '^\d{2}:\d{2}$', example: '09:00' }
+                workingHoursEnd:   { type: string, pattern: '^\d{2}:\d{2}$', example: '18:00' }
+      responses:
+        '201':
+          description: Company created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Company' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /companies/{companyId}:
+    get:
+      tags: [Company]
+      summary: Get company details
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+      responses:
+        '200':
+          description: Company
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Company' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    patch:
+      tags: [Company]
+      summary: Update company settings (owner only)
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:              { type: string }
+                logoUrl:           { type: string, format: uri }
+                workingHoursStart: { type: string, pattern: '^\d{2}:\d{2}$' }
+                workingHoursEnd:   { type: string, pattern: '^\d{2}:\d{2}$' }
+      responses:
+        '200':
+          description: Updated company
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Company' }
+        '400': { description: Invalid working hours range }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    delete:
+      tags: [Company]
+      summary: Soft-delete a company (owner only)
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /companies/{companyId}/analytics:
+    get:
+      tags: [Company]
+      summary: Company-wide analytics (admin only)
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+      responses:
+        '200':
+          description: Company analytics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/CompanyAnalytics' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /companies/{companyId}/activity:
+    get:
+      tags: [Company]
+      summary: Company-wide activity feed (admin only)
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: action
+          in: query
+          schema: { $ref: '#/components/schemas/ActivityAction' }
+      responses:
+        '200':
+          description: Paginated activity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ActivityItem' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # STAFF
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /companies/{companyId}/staff:
+    get:
+      tags: [Staff]
+      summary: List staff members (admin only)
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/StaffStatus' }
+        - $ref: '#/components/parameters/search'
+      responses:
+        '200':
+          description: Paginated staff list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/StaffMember' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /companies/{companyId}/staff/invite:
+    post:
+      tags: [Staff]
+      summary: Invite a staff member by email (admin only)
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '201':
+          description: Invite sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/StaffMember' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /companies/{companyId}/staff/{staffId}:
+    get:
+      tags: [Staff]
+      summary: Get individual staff member profile (admin only)
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+        - $ref: '#/components/parameters/staffId'
+      responses:
+        '200':
+          description: Staff member
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/StaffMember' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    patch:
+      tags: [Staff]
+      summary: Update staff member metadata (admin only)
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+        - $ref: '#/components/parameters/staffId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { $ref: '#/components/schemas/StaffStatus' }
+      responses:
+        '200':
+          description: Updated staff member
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/StaffMember' }
+        '400': { description: Invalid status transition }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    delete:
+      tags: [Staff]
+      summary: Remove staff member (admin only; soft-delete)
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+        - $ref: '#/components/parameters/staffId'
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /companies/{companyId}/staff/{staffId}/suspend:
+    patch:
+      tags: [Staff]
+      summary: Suspend an active staff member (admin only)
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+        - $ref: '#/components/parameters/staffId'
+      responses:
+        '200':
+          description: Staff suspended
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/StaffMember' }
+        '400': { description: Staff is not active }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /companies/{companyId}/staff/{staffId}/activate:
+    patch:
+      tags: [Staff]
+      summary: Reactivate a suspended staff member (admin only)
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+        - $ref: '#/components/parameters/staffId'
+      responses:
+        '200':
+          description: Staff activated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/StaffMember' }
+        '400': { description: Staff is not suspended }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /companies/{companyId}/staff/{staffId}/resend-invite:
+    post:
+      tags: [Staff]
+      summary: Resend invite email (admin only; staff must be in invited status)
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+        - $ref: '#/components/parameters/staffId'
+      responses:
+        '200':
+          description: Invite resent with refreshed token
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/StaffMember' }
+        '400': { description: Staff is not in invited status }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /companies/{companyId}/staff/{staffId}/tasks:
+    get:
+      tags: [Staff]
+      summary: List tasks assigned to a specific staff member (admin only)
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+        - $ref: '#/components/parameters/staffId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/TaskStatus' }
+      responses:
+        '200':
+          description: Paginated task list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Task' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /companies/{companyId}/staff/{staffId}/stats:
+    get:
+      tags: [Staff]
+      summary: Productivity stats for a staff member (admin only)
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+        - $ref: '#/components/parameters/staffId'
+      responses:
+        '200':
+          description: Staff stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/StaffStats' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # PROJECTS
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /projects:
+    get:
+      tags: [Projects]
+      summary: List projects (admin sees all; staff sees projects with assigned tasks)
+      parameters:
+        - name: companyId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ProjectStatus' }
+        - $ref: '#/components/parameters/search'
+      responses:
+        '200':
+          description: Paginated project list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Project' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+    post:
+      tags: [Projects]
+      summary: Create a project (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, companyId]
+              properties:
+                name:        { type: string }
+                description: { type: string }
+                companyId:   { type: string, format: uuid }
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Project' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /projects/{projectId}:
+    get:
+      tags: [Projects]
+      summary: Get project details
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+      responses:
+        '200':
+          description: Project
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Project' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    patch:
+      tags: [Projects]
+      summary: Update project name or description (admin only)
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:        { type: string }
+                description: { type: string }
+      responses:
+        '200':
+          description: Updated project
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Project' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /projects/{projectId}/status:
+    patch:
+      tags: [Projects]
+      summary: |
+        Update project status (admin only).
+        Archiving is blocked if an active sprint exists.
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { $ref: '#/components/schemas/ProjectStatus' }
+      responses:
+        '200':
+          description: Updated project
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Project' }
+        '400': { description: Cannot archive project with an active sprint }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /projects/{projectId}/dashboard:
+    get:
+      tags: [Projects]
+      summary: Project dashboard — active sprint, task breakdown, recent activity
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+      responses:
+        '200':
+          description: Project dashboard
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/ProjectDashboard' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /projects/{projectId}/analytics:
+    get:
+      tags: [Projects]
+      summary: Project analytics — sprint velocity, task completion rate, effort slippage
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+      responses:
+        '200':
+          description: Project analytics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/ProjectAnalytics' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /projects/{projectId}/tasks:
+    get:
+      tags: [Projects]
+      summary: List all tasks across all sprints within a project
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/TaskStatus' }
+        - name: priority
+          in: query
+          schema: { $ref: '#/components/schemas/TaskPriority' }
+        - $ref: '#/components/parameters/search'
+      responses:
+        '200':
+          description: Paginated task list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Task' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # SPRINTS
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /projects/{projectId}/sprints:
+    get:
+      tags: [Sprints]
+      summary: List sprints for a project
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/SprintStatus' }
+      responses:
+        '200':
+          description: Paginated sprint list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Sprint' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    post:
+      tags: [Sprints]
+      summary: Create a sprint in draft status (admin only)
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:      { type: string }
+                goal:      { type: string }
+                startDate: { type: string, format: date }
+                endDate:   { type: string, format: date }
+      responses:
+        '201':
+          description: Sprint created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Sprint' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /sprints/{sprintId}:
+    get:
+      tags: [Sprints]
+      summary: Get sprint details
+      parameters:
+        - $ref: '#/components/parameters/sprintId'
+      responses:
+        '200':
+          description: Sprint
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Sprint' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    patch:
+      tags: [Sprints]
+      summary: Update sprint metadata (admin only)
+      parameters:
+        - $ref: '#/components/parameters/sprintId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:      { type: string }
+                goal:      { type: string }
+                startDate: { type: string, format: date }
+                endDate:   { type: string, format: date }
+      responses:
+        '200':
+          description: Updated sprint
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Sprint' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    delete:
+      tags: [Sprints]
+      summary: Delete a draft sprint (admin only)
+      parameters:
+        - $ref: '#/components/parameters/sprintId'
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '400': { description: Can only delete draft sprints }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /sprints/{sprintId}/status:
+    patch:
+      tags: [Sprints]
+      summary: |
+        Transition sprint status (admin only).
+        Valid transitions: `draft → active`, `active → completed`.
+        Only one active sprint is allowed per project.
+      parameters:
+        - $ref: '#/components/parameters/sprintId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [active, completed]
+            examples:
+              start:
+                summary: Start sprint
+                value: { status: active }
+              end:
+                summary: Complete sprint
+                value: { status: completed }
+      responses:
+        '200':
+          description: Sprint with updated status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Sprint' }
+        '400': { description: Invalid transition or another sprint already active }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /sprints/{sprintId}/dashboard:
+    get:
+      tags: [Sprints]
+      summary: Sprint dashboard — task breakdown, progress, days remaining
+      parameters:
+        - $ref: '#/components/parameters/sprintId'
+      responses:
+        '200':
+          description: Sprint dashboard
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/SprintDashboard' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /sprints/{sprintId}/metrics:
+    get:
+      tags: [Sprints]
+      summary: Sprint metrics — effort, velocity, slippage, per-staff breakdown
+      parameters:
+        - $ref: '#/components/parameters/sprintId'
+      responses:
+        '200':
+          description: Sprint metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/SprintMetrics' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # TASKS
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /sprints/{sprintId}/tasks:
+    get:
+      tags: [Tasks]
+      summary: List tasks in a sprint (admin sees all; staff sees assigned only)
+      parameters:
+        - $ref: '#/components/parameters/sprintId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/TaskStatus' }
+        - name: priority
+          in: query
+          schema: { $ref: '#/components/schemas/TaskPriority' }
+        - $ref: '#/components/parameters/search'
+        - name: parentTaskId
+          in: query
+          description: '"null" (string) returns top-level tasks only; omit to return all'
+          schema: { type: string }
+        - name: assigneeId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Paginated task list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Task' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    post:
+      tags: [Tasks]
+      summary: Create a task in a sprint (admin only; blocked for completed sprints)
+      parameters:
+        - $ref: '#/components/parameters/sprintId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:              { type: string }
+                description:       { type: string }
+                priority:          { $ref: '#/components/schemas/TaskPriority' }
+                parentTaskId:
+                  type: string
+                  format: uuid
+                  description: 'Must belong to same sprint; supports unlimited nesting'
+                startDate:         { type: string, format: date }
+                plannedDueDate:    { type: string, format: date }
+                plannedEffortPh:   { type: number, minimum: 0 }
+                estimatedEffortPh: { type: number, minimum: 0, description: 'Admin only' }
+                assigneeIds:
+                  type: array
+                  items: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Task created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Task' }
+        '400': { description: Sprint completed or parent task not in sprint }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/{taskId}:
+    get:
+      tags: [Tasks]
+      summary: Get full task detail including sprint, steps, recent comments, recent attachments
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      responses:
+        '200':
+          description: Task detail
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/TaskDetail' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    patch:
+      tags: [Tasks]
+      summary: Update task fields (admin only)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:              { type: string }
+                description:       { type: string }
+                priority:          { $ref: '#/components/schemas/TaskPriority' }
+                startDate:         { type: string, format: date }
+                plannedDueDate:    { type: string, format: date }
+                actualDueDate:     { type: string, format: date }
+                plannedEffortPh:   { type: number, minimum: 0 }
+                estimatedEffortPh: { type: number, minimum: 0 }
+      responses:
+        '200':
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Task' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    delete:
+      tags: [Tasks]
+      summary: Soft-delete a task and all sub-tasks (admin only)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{taskId}/status:
+    patch:
+      tags: [Tasks]
+      summary: |
+        Transition task status (assignee or admin).
+        Valid: todo→in_progress, in_progress→review, review→done|in_progress, done→review.
+        Completing a task sets `actualDueDate` if not already set.
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { $ref: '#/components/schemas/TaskStatus' }
+      responses:
+        '200':
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Task' }
+        '400': { description: Invalid status transition }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{taskId}/effort:
+    patch:
+      tags: [Tasks]
+      summary: Update effort hours (assignee or admin; staff cannot set estimatedEffortPh)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                actualEffortPh:    { type: number, minimum: 0 }
+                estimatedEffortPh: { type: number, minimum: 0, description: 'Admin only' }
+      responses:
+        '200':
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Task' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{taskId}/assignees:
+    get:
+      tags: [Tasks]
+      summary: Full assignee history (active and past)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      responses:
+        '200':
+          description: Assignee history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/TaskAssigneeHistoryEntry' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    patch:
+      tags: [Tasks]
+      summary: |
+        Add or remove assignees in a single call (admin only).
+        Users in `add` that are already assigned are silently skipped.
+        Users in `remove` that are not assigned are silently skipped.
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                add:
+                  type: array
+                  items: { type: string, format: uuid }
+                  description: User IDs to assign (must be active staff)
+                remove:
+                  type: array
+                  items: { type: string, format: uuid }
+                  description: User IDs to unassign
+            examples:
+              assign:
+                summary: Assign two users
+                value: { add: ['uuid-1', 'uuid-2'], remove: [] }
+              reassign:
+                summary: Swap assignee
+                value: { add: ['uuid-new'], remove: ['uuid-old'] }
+      responses:
+        '200':
+          description: Task with updated assignee list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Task' }
+        '400': { description: One or more users in `add` are not active staff }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{taskId}/dashboard:
+    get:
+      tags: [Tasks]
+      summary: Task dashboard — progress, slippage, overdue flag, counts
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      responses:
+        '200':
+          description: Task dashboard
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/TaskDashboard' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{taskId}/stats:
+    get:
+      tags: [Tasks]
+      summary: Task statistics — effort totals, completion time, assignee count
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      responses:
+        '200':
+          description: Task stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/TaskStats' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{taskId}/activity:
+    get:
+      tags: [Tasks]
+      summary: Activity feed for a specific task (status changes, comments, assignments, etc.)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Paginated activity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ActivityItem' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{taskId}/audit:
+    get:
+      tags: [Tasks]
+      summary: Audit log for a task — all field changes with before/after values (admin only)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Paginated audit log
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ActivityItem' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{taskId}/history:
+    get:
+      tags: [Tasks]
+      summary: Status transition history for a task — when each status was reached and by whom
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      responses:
+        '200':
+          description: Status history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        from:      { $ref: '#/components/schemas/TaskStatus', nullable: true }
+                        to:        { $ref: '#/components/schemas/TaskStatus' }
+                        changedBy: { $ref: '#/components/schemas/UserSummary' }
+                        changedAt: { type: string, format: date-time }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # STEPS
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /tasks/{taskId}/steps:
+    get:
+      tags: [Steps]
+      summary: List steps for a task ordered by position
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      responses:
+        '200':
+          description: Step list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/TaskStep' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+    post:
+      tags: [Steps]
+      summary: Add a step to a task (admin only)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title]
+              properties:
+                title: { type: string, maxLength: 500 }
+                order: { type: integer, minimum: 0, description: 'Defaults to last position' }
+      responses:
+        '201':
+          description: Step created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/TaskStep' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/{taskId}/steps/reorder:
+    patch:
+      tags: [Steps]
+      summary: Reorder all steps by providing the complete ordered list of IDs (admin only)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stepIds]
+              properties:
+                stepIds:
+                  type: array
+                  description: Must include every active step ID for this task — no omissions
+                  items: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Updated step list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/TaskStep' }
+        '400': { description: stepIds set does not match the task's active steps exactly }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/{taskId}/steps/{stepId}:
+    patch:
+      tags: [Steps]
+      summary: |
+        Update a step (assignee or admin).
+        Use `{ "isChecked": true }` to complete, `{ "isChecked": false }` to reopen.
+        Also supports updating `title`.
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/stepId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                isChecked: { type: boolean }
+                title:     { type: string, maxLength: 500 }
+            examples:
+              complete:
+                summary: Mark complete
+                value: { isChecked: true }
+              reopen:
+                summary: Mark incomplete
+                value: { isChecked: false }
+              rename:
+                summary: Rename step
+                value: { title: 'Updated step title' }
+      responses:
+        '200':
+          description: Updated step
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/TaskStep' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    delete:
+      tags: [Steps]
+      summary: Delete a step (admin only; soft-delete)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/stepId'
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # ATTACHMENTS
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /tasks/{taskId}/attachments:
+    get:
+      tags: [Attachments]
+      summary: List attachments for a task
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      responses:
+        '200':
+          description: Attachment list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Attachment' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+    post:
+      tags: [Attachments]
+      summary: Upload a file (assignee or admin; max 10 MB; MIME validated)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                description:
+                  type: string
+                  description: Optional description saved as metadata
+      responses:
+        '201':
+          description: File uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Attachment' }
+        '400': { description: File exceeds 10 MB }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '415': { description: MIME type not allowed }
+
+  /tasks/{taskId}/attachments/{attachmentId}:
+    patch:
+      tags: [Attachments]
+      summary: Update attachment metadata — description, fileName (admin or uploader)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/attachmentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description: { type: string }
+                fileName:    { type: string, description: 'Display name only; physical file is unchanged' }
+      responses:
+        '200':
+          description: Updated attachment
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Attachment' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    delete:
+      tags: [Attachments]
+      summary: Delete an attachment (admin always; staff only if they uploaded it)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/attachmentId'
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{taskId}/attachments/{attachmentId}/download:
+    get:
+      tags: [Attachments]
+      summary: Stream download a file attachment
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/attachmentId'
+      responses:
+        '200':
+          description: Binary file stream
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # NOTES
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /tasks/{taskId}/notes:
+    get:
+      tags: [Notes]
+      summary: List notes for a task (newest first)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Paginated notes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Note' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+    post:
+      tags: [Notes]
+      summary: Create a note (assignee or admin)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                title:   { type: string, maxLength: 500 }
+                content: { type: string, minLength: 1 }
+      responses:
+        '201':
+          description: Note created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Note' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/{taskId}/notes/history:
+    get:
+      tags: [Notes]
+      summary: Consolidated version history across all notes for a task (newest edits first)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Paginated note version history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/NoteVersion'
+                        - type: object
+                          properties:
+                            noteTitle: { type: string, nullable: true }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{taskId}/notes/{noteId}:
+    get:
+      tags: [Notes]
+      summary: Get a note with full version history
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/noteId'
+      responses:
+        '200':
+          description: Note with versions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/NoteWithVersions' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    patch:
+      tags: [Notes]
+      summary: Update a note — previous content is auto-snapshotted as a version (admin or author)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/noteId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:   { type: string, maxLength: 500 }
+                content: { type: string, minLength: 1 }
+      responses:
+        '200':
+          description: Updated note
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Note' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    delete:
+      tags: [Notes]
+      summary: Delete a note (admin or author)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/noteId'
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # COMMENTS
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /tasks/{taskId}/comments:
+    get:
+      tags: [Comments]
+      summary: List comments including replies and reactions (newest first)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/page'
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        '200':
+          description: Paginated comments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Comment' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+    post:
+      tags: [Comments]
+      summary: Post a comment (assignee or admin; mentionedUserIds validated against active staff)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:          { type: string, minLength: 1, maxLength: 5000 }
+                mentionedUserIds:
+                  type: array
+                  items: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Comment posted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Comment' }
+        '400': { description: Invalid mention — user not active staff }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /tasks/{taskId}/comments/{commentId}:
+    patch:
+      tags: [Comments]
+      summary: Edit a comment (admin always; staff only if they authored it)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/commentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:          { type: string, minLength: 1, maxLength: 5000 }
+                mentionedUserIds: { type: array, items: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Updated comment
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Comment' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+    delete:
+      tags: [Comments]
+      summary: Delete a comment (admin always; staff only if they authored it — content becomes "[deleted]")
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/commentId'
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{taskId}/comments/{commentId}/replies:
+    post:
+      tags: [Comments]
+      summary: Post a reply to a comment (assignee or admin)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/commentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:          { type: string, minLength: 1, maxLength: 5000 }
+                mentionedUserIds: { type: array, items: { type: string, format: uuid } }
+      responses:
+        '201':
+          description: Reply posted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/CommentReply' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{taskId}/comments/{commentId}/replies/{replyId}:
+    delete:
+      tags: [Comments]
+      summary: Delete a reply (admin always; staff only if they authored it)
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/commentId'
+        - $ref: '#/components/parameters/replyId'
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /tasks/{taskId}/comments/{commentId}/reactions:
+    post:
+      tags: [Comments]
+      summary: Toggle an emoji reaction — posting the same emoji twice removes it
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/commentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [emoji]
+              properties:
+                emoji: { type: string, maxLength: 10, example: '👍' }
+      responses:
+        '200':
+          description: Reaction toggled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: object
+                    properties:
+                      toggled:  { type: boolean, description: 'true = added; false = removed' }
+                      reaction: { $ref: '#/components/schemas/CommentReaction', nullable: true }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # DASHBOARD
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /dashboard/admin/{companyId}:
+    get:
+      tags: [Dashboard]
+      summary: Admin company dashboard — staff counts, task breakdown, recent activity
+      parameters:
+        - $ref: '#/components/parameters/companyId'
+      responses:
+        '200':
+          description: Admin dashboard
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/AdminDashboard' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /dashboard/me:
+    get:
+      tags: [Dashboard]
+      summary: Staff personal dashboard — task counts, upcoming tasks, active sprints
+      responses:
+        '200':
+          description: Staff dashboard
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/StaffDashboard' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /dashboard/tasks:
+    get:
+      tags: [Dashboard]
+      summary: Paginated task list for the dashboard with status filter support
+      parameters:
+        - name: companyId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/TaskStatus' }
+        - name: assigneeId
+          in: query
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Paginated tasks for dashboard widget
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Task' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /dashboard/tasks/overdue:
+    get:
+      tags: [Dashboard]
+      summary: All overdue tasks (past plannedDueDate, not done) — admin or self
+      parameters:
+        - name: companyId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Overdue tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Task' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /dashboard/tasks/in-progress:
+    get:
+      tags: [Dashboard]
+      summary: Tasks currently in progress — admin or self
+      parameters:
+        - name: companyId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: In-progress tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Task' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /dashboard/tasks/completed:
+    get:
+      tags: [Dashboard]
+      summary: Recently completed tasks — admin or self
+      parameters:
+        - name: companyId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: since
+          in: query
+          schema: { type: string, format: date, description: 'Filter tasks completed after this date' }
+      responses:
+        '200':
+          description: Completed tasks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Task' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /dashboard/projects/{projectId}:
+    get:
+      tags: [Dashboard]
+      summary: Project summary widget (admin only)
+      parameters:
+        - $ref: '#/components/parameters/projectId'
+      responses:
+        '200':
+          description: Project summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/ProjectDashboard' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # NOTIFICATIONS
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: List notifications for the current user (newest first)
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: unreadOnly
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: Paginated notifications
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Notification' }
+                  meta:
+                    allOf:
+                      - $ref: '#/components/schemas/PaginatedMeta'
+                      - type: object
+                        properties:
+                          unreadCount: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /notifications/read-all:
+    patch:
+      tags: [Notifications]
+      summary: Mark all notifications as read
+      responses:
+        '200': { $ref: '#/components/responses/MessageOk' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /notifications/{notifId}/read:
+    patch:
+      tags: [Notifications]
+      summary: Mark a single notification as read
+      parameters:
+        - $ref: '#/components/parameters/notifId'
+      responses:
+        '200':
+          description: Notification marked read
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:    { $ref: '#/components/schemas/Notification' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # ACTIVITIES
+  # ════════════════════════════════════════════════════════════════════════════
+
+  /activities:
+    get:
+      tags: [Activities]
+      summary: Company-wide activity feed filtered by actor, entity, or action (admin only)
+      parameters:
+        - name: companyId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+        - name: actorId
+          in: query
+          schema: { type: string, format: uuid }
+        - name: entityType
+          in: query
+          schema:
+            type: string
+            enum: [task, sprint, project, comment, note, attachment, step, staff, company]
+        - name: action
+          in: query
+          schema: { $ref: '#/components/schemas/ActivityAction' }
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Paginated activity feed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ActivityItem' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /activities/me:
+    get:
+      tags: [Activities]
+      summary: Current user's own activity feed
+      parameters:
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Paginated personal activity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ActivityItem' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /activities/tasks/{taskId}:
+    get:
+      tags: [Activities]
+      summary: Activity timeline for a specific task
+      parameters:
+        - $ref: '#/components/parameters/taskId'
+        - $ref: '#/components/parameters/page'
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: Paginated task activity
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ActivityItem' }
+                  meta: { $ref: '#/components/schemas/PaginatedMeta' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }

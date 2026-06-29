@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@layer base {
+  * {
+    @apply box-border;
+  }
+  body {
+    @apply bg-[#f7f7f5] text-gray-950 antialiased;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  .surface {
+    @apply rounded-lg border border-gray-200/80 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.03)];
+  }
+
+  .surface-muted {
+    @apply rounded-lg border border-gray-200/70 bg-gray-50/60;
+  }
+
+  .quiet-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:ring-offset-0;
+  }
+}
