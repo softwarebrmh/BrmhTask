@@ -227,6 +227,7 @@ export interface TaskStatusBreakdown {
   inProgress: number;
   review: number;
   done: number;
+  overdue?: number;
   total?: number;
 }
 

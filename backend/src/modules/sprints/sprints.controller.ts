@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { SprintsService } from './sprints.service';
 import { CreateSprintDto } from './dto/create-sprint.dto';
@@ -69,5 +69,32 @@ export class SprintsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.sprintsService.end(projectId, sprintId, user);
+  }
+
+  @Get(':sprintId/members')
+  getMembers(@Param('sprintId') sprintId: string) {
+    return this.sprintsService.getMembers(sprintId);
+  }
+
+  @Post(':sprintId/members')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  addMember(
+    @Param('sprintId') sprintId: string,
+    @Body() body: { userId: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.sprintsService.addMember(sprintId, body.userId, user);
+  }
+
+  @Delete(':sprintId/members/:userId')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  removeMember(
+    @Param('sprintId') sprintId: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.sprintsService.removeMember(sprintId, userId);
   }
 }

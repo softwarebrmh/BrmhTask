@@ -6,15 +6,18 @@ import { useParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, ChevronRight, Play, CheckCircle, Clock, ArrowRight } from 'lucide-react';
+import { Plus, ChevronRight, Play, CheckCircle, Clock, ArrowRight, Users } from 'lucide-react';
 import { Header } from '@/components/layout/header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 import { PageSpinner } from '@/components/ui/spinner';
+import { MemberPicker } from '@/components/ui/member-picker';
 import { useAuthStore } from '@/lib/stores/auth.store';
 import { useProject, useSprints, useCreateSprint, useStartSprint, useEndSprint } from '@/lib/hooks/use-projects';
+import { projectMembersApi } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
+import { useQuery } from '@tanstack/react-query';
 import type { SprintStatus } from '@/types';
 
 const schema = z.object({
@@ -44,13 +47,30 @@ export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const { user } = useAuthStore();
   const isAdmin = user?.role === 'admin';
+  const companyId = user?.companyId ?? '';
   const [showCreate, setShowCreate] = useState(false);
 
-  const { data: projectRes, isLoading: projectLoading } = useProject(projectId);
+  const { data: projectRes, isLoading: projectLoading } = useProject(companyId, projectId);
   const { data: sprintsRes, isLoading: sprintsLoading } = useSprints(projectId);
   const createSprint = useCreateSprint(projectId);
-  const startSprint  = useStartSprint();
-  const endSprint    = useEndSprint();
+  const startSprint  = useStartSprint(projectId);
+  const endSprint    = useEndSprint(projectId);
+
+  const membersKey = ['project-members', projectId];
+  const { data: membersData } = useQuery({
+    queryKey: membersKey,
+    queryFn: () => projectMembersApi.list(projectId, companyId).then((r) => r.data.data ?? []),
+    enabled: !!projectId && !!companyId,
+  });
+  const members = membersData ?? [];
+
+  const handleAddMember = async (userId: string) => {
+    await projectMembersApi.add(companyId, projectId, userId);
+  };
+
+  const handleRemoveMember = async (userId: string) => {
+    await projectMembersApi.remove(companyId, projectId, userId);
+  };
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -60,9 +80,10 @@ export default function ProjectDetailPage() {
     createSprint.mutate(d, { onSuccess: () => { setShowCreate(false); reset(); } });
   };
 
+  const project = projectRes?.data;
+
   if (projectLoading || sprintsLoading) return <PageSpinner />;
 
-  const project = projectRes?.data;
   const sprints = sprintsRes?.data ?? [];
   const activeSprint   = sprints.find((s) => s.status === 'active');
   const draftSprints   = sprints.filter((s) => s.status === 'draft');
@@ -115,6 +136,25 @@ export default function ProjectDetailPage() {
                   {project.status === 'active' ? 'Active' : 'Archived'}
                 </span>
               </div>
+            </div>
+          )}
+
+          {/* Project Members */}
+          {project && (
+            <div className="rounded-xl border border-gray-100 bg-white p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Users className="h-4 w-4 text-gray-400" />
+                <h3 className="text-sm font-semibold text-gray-900">Project Members</h3>
+                <span className="text-xs text-gray-400">({members.length})</span>
+              </div>
+              <MemberPicker
+                companyId={companyId}
+                members={members}
+                onAdd={handleAddMember}
+                onRemove={handleRemoveMember}
+                isAdmin={isAdmin}
+                queryKey={membersKey}
+              />
             </div>
           )}
 

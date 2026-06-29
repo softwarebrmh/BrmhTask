@@ -204,6 +204,35 @@ export const dashboardApi = {
     apiClient.get<SingleResponse<any>>(`/dashboard/projects/${projectId}`),
 };
 
+// ─── Project members ──────────────────────────────────────────────────────────
+
+export const projectMembersApi = {
+  list: (projectId: string, companyId: string) =>
+    apiClient.get<SingleResponse<any[]>>(`/companies/${companyId}/projects/${projectId}/members`),
+  add: (companyId: string, projectId: string, userId: string) =>
+    apiClient.post<SingleResponse<any>>(`/companies/${companyId}/projects/${projectId}/members`, { userId }),
+  remove: (companyId: string, projectId: string, userId: string) =>
+    apiClient.delete<SingleResponse<any>>(`/companies/${companyId}/projects/${projectId}/members/${userId}`),
+};
+
+// ─── Sprint members ───────────────────────────────────────────────────────────
+
+export const sprintMembersApi = {
+  list: (projectId: string, sprintId: string) =>
+    apiClient.get<SingleResponse<any[]>>(`/projects/${projectId}/sprints/${sprintId}/members`),
+  add: (projectId: string, sprintId: string, userId: string) =>
+    apiClient.post<SingleResponse<any>>(`/projects/${projectId}/sprints/${sprintId}/members`, { userId }),
+  remove: (projectId: string, sprintId: string, userId: string) =>
+    apiClient.delete<SingleResponse<any>>(`/projects/${projectId}/sprints/${sprintId}/members/${userId}`),
+};
+
+// ─── Audit ────────────────────────────────────────────────────────────────────
+
+export const auditApi = {
+  taskAudit: (taskId: string, params?: { page?: number; limit?: number }) =>
+    apiClient.get<any>(`/tasks/${taskId}/audit`, { params }),
+};
+
 // ─── Health ───────────────────────────────────────────────────────────────────
 
 export const healthApi = {

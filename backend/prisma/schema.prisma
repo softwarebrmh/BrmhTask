@@ -134,6 +134,10 @@ model User {
   commentReplies   CommentReply[]
   commentReactions CommentReaction[]
   auditTrails      AuditTrail[]
+  projectMembers   ProjectMember[]  @relation("ProjectMemberUser")
+  projectMembersAdded ProjectMember[] @relation("ProjectMemberAddedBy")
+  sprintMembers    SprintMember[]   @relation("SprintMemberUser")
+  sprintMembersAdded SprintMember[] @relation("SprintMemberAddedBy")
 
   @@map("users")
 }
@@ -204,9 +208,10 @@ model Project {
   createdAt   DateTime      @default(now()) @map("created_at")
   updatedAt   DateTime      @updatedAt @map("updated_at")
 
-  company Company  @relation(fields: [companyId], references: [id])
-  creator User     @relation("ProjectCreatedBy", fields: [createdBy], references: [id])
+  company Company         @relation(fields: [companyId], references: [id])
+  creator User            @relation("ProjectCreatedBy", fields: [createdBy], references: [id])
   sprints Sprint[]
+  members ProjectMember[]
 
   @@map("projects")
 }
@@ -228,9 +233,10 @@ model Sprint {
   createdAt   DateTime     @default(now()) @map("created_at")
   updatedAt   DateTime     @updatedAt @map("updated_at")
 
-  project Project @relation(fields: [projectId], references: [id])
-  creator User    @relation("SprintCreatedBy", fields: [createdBy], references: [id])
+  project Project        @relation(fields: [projectId], references: [id])
+  creator User           @relation("SprintCreatedBy", fields: [createdBy], references: [id])
   tasks   Task[]
+  members SprintMember[]
 
   @@map("sprints")
 }
@@ -446,4 +452,42 @@ model AuditTrail {
   actor   User    @relation(fields: [actorId], references: [id])
 
   @@map("audit_trails")
+}
+
+// ─────────────────────────────────────────
+// PROJECT MEMBERS
+// ─────────────────────────────────────────
+
+model ProjectMember {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  userId    String   @map("user_id")
+  addedBy   String   @map("added_by")
+  addedAt   DateTime @default(now()) @map("added_at")
+
+  project     Project @relation(fields: [projectId], references: [id])
+  user        User    @relation("ProjectMemberUser", fields: [userId], references: [id])
+  addedByUser User    @relation("ProjectMemberAddedBy", fields: [addedBy], references: [id])
+
+  @@unique([projectId, userId])
+  @@map("project_members")
+}
+
+// ─────────────────────────────────────────
+// SPRINT MEMBERS
+// ─────────────────────────────────────────
+
+model SprintMember {
+  id       String   @id @default(uuid())
+  sprintId String   @map("sprint_id")
+  userId   String   @map("user_id")
+  addedBy  String   @map("added_by")
+  addedAt  DateTime @default(now()) @map("added_at")
+
+  sprint      Sprint @relation(fields: [sprintId], references: [id])
+  user        User   @relation("SprintMemberUser", fields: [userId], references: [id])
+  addedByUser User   @relation("SprintMemberAddedBy", fields: [addedBy], references: [id])
+
+  @@unique([sprintId, userId])
+  @@map("sprint_members")
 }

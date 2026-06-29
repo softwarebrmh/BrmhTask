@@ -6,8 +6,8 @@ import { useParams } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { useQueryClient } from '@tanstack/react-query';
-import { Plus, Search, ChevronRight, AlertCircle } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Plus, Search, ChevronRight, AlertCircle, Users } from 'lucide-react';
 import { Header } from '@/components/layout/header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,10 +15,11 @@ import { Modal } from '@/components/ui/modal';
 import { TaskStatusBadge, PriorityBadge } from '@/components/ui/badge';
 import { AvatarGroup } from '@/components/ui/avatar';
 import { PageSpinner } from '@/components/ui/spinner';
+import { MemberPicker } from '@/components/ui/member-picker';
 import { useAuthStore } from '@/lib/stores/auth.store';
 import { useSprint } from '@/lib/hooks/use-projects';
 import { useSprintTasks, useCreateTask, taskKeys } from '@/lib/hooks/use-tasks';
-import { tasksApi } from '@/lib/api';
+import { tasksApi, sprintMembersApi } from '@/lib/api';
 import { formatDate, extractError } from '@/lib/utils';
 import toast from 'react-hot-toast';
 import type { Task, TaskStatus, TaskPriority } from '@/types';
@@ -141,20 +142,39 @@ export default function SprintTasksPage() {
   const [statusFilter, setStatusFilter] = useState<TaskStatus | ''>('');
   const [priorityFilter, setPriorityFilter] = useState<TaskPriority | ''>('');
 
-  const { data: sprintRes } = useSprint(sprintId);
+  const companyId = user?.companyId ?? '';
+
+  const { data: sprintRes } = useSprint(projectId, sprintId);
   const { data: tasksData, isLoading } = useSprintTasks(sprintId, {
     parentTaskId: 'null',
     search:   search        || undefined,
     status:   statusFilter  || undefined,
     priority: priorityFilter || undefined,
   });
+
+  const sprint = sprintRes?.data;
+
+  const membersKey = ['sprint-members', sprintId];
+  const { data: membersData } = useQuery({
+    queryKey: membersKey,
+    queryFn: () => sprintMembersApi.list(projectId, sprintId).then((r) => r.data.data ?? []),
+    enabled: !!sprintId && !!projectId,
+  });
+  const members = membersData ?? [];
+
+  const handleAddMember = async (userId: string) => {
+    await sprintMembersApi.add(projectId, sprintId, userId);
+  };
+
+  const handleRemoveMember = async (userId: string) => {
+    await sprintMembersApi.remove(projectId, sprintId, userId);
+  };
   const createTask = useCreateTask(sprintId);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<FormData>({
     resolver: zodResolver(schema),
   });
 
-  const sprint = sprintRes?.data;
   const tasks  = [...(tasksData?.data ?? [])].sort((a, b) => {
     if (a.status !== b.status) return STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
     return PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
@@ -254,6 +274,25 @@ export default function SprintTasksPage() {
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Sprint Members */}
+          {sprint && (
+            <div className="rounded-xl border border-gray-100 bg-white p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <Users className="h-4 w-4 text-gray-400" />
+                <h3 className="text-sm font-semibold text-gray-900">Sprint Members</h3>
+                <span className="text-xs text-gray-400">({members.length})</span>
+              </div>
+              <MemberPicker
+                companyId={companyId}
+                members={members}
+                onAdd={handleAddMember}
+                onRemove={handleRemoveMember}
+                isAdmin={isAdmin}
+                queryKey={membersKey}
+              />
             </div>
           )}
 

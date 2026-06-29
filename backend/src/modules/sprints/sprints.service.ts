@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { SprintsRepository } from './sprints.repository';
 import { AuditService } from '../audit/audit.service';
 import { CreateSprintDto } from './dto/create-sprint.dto';
@@ -139,6 +139,58 @@ export class SprintsService {
     });
 
     return { success: true, data: await this.format(updated) };
+  }
+
+  // ─── Member management ─────────────────────────────────────────────────────
+
+  async getMembers(sprintId: string) {
+    const members = await this.prisma.sprintMember.findMany({
+      where: { sprintId },
+      include: {
+        user: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
+        addedByUser: { select: { id: true, fullName: true } },
+      },
+      orderBy: { addedAt: 'asc' },
+    });
+    return { success: true, data: members.map((m) => ({
+      id: m.id,
+      user: m.user,
+      addedBy: m.addedByUser,
+      addedAt: m.addedAt,
+    })) };
+  }
+
+  async addMember(sprintId: string, userId: string, actor: JwtPayload) {
+    const sprint = await this.prisma.sprint.findFirst({ where: { id: sprintId, deletedAt: null } });
+    if (!sprint) throw new NotFoundException('Sprint not found');
+
+    const user = await this.prisma.user.findFirst({ where: { id: userId, deletedAt: null } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const existing = await this.prisma.sprintMember.findUnique({
+      where: { sprintId_userId: { sprintId, userId } },
+    });
+    if (existing) throw new ConflictException('User is already a member of this sprint');
+
+    const member = await this.prisma.sprintMember.create({
+      data: { sprintId, userId, addedBy: actor.sub },
+      include: { user: { select: { id: true, fullName: true, email: true, avatarUrl: true } } },
+    });
+
+    return { success: true, data: { id: member.id, user: member.user, addedAt: member.addedAt } };
+  }
+
+  async removeMember(sprintId: string, userId: string) {
+    const member = await this.prisma.sprintMember.findUnique({
+      where: { sprintId_userId: { sprintId, userId } },
+    });
+    if (!member) throw new NotFoundException('Member not found');
+
+    await this.prisma.sprintMember.delete({
+      where: { sprintId_userId: { sprintId, userId } },
+    });
+
+    return { success: true, data: { message: 'Member removed' } };
   }
 
   async format(sprint: any) {

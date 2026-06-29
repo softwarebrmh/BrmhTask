@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
@@ -67,5 +67,32 @@ export class ProjectsController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.projectsService.archive(companyId, projectId, user);
+  }
+
+  @Get(':projectId/members')
+  getMembers(@Param('projectId') projectId: string) {
+    return this.projectsService.getMembers(projectId);
+  }
+
+  @Post(':projectId/members')
+  @UseGuards(RolesGuard, CompanyOwnerGuard)
+  @Roles(UserRole.ADMIN)
+  addMember(
+    @Param('projectId') projectId: string,
+    @Body() body: { userId: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.projectsService.addMember(projectId, body.userId, user);
+  }
+
+  @Delete(':projectId/members/:userId')
+  @UseGuards(RolesGuard, CompanyOwnerGuard)
+  @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  removeMember(
+    @Param('projectId') projectId: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.projectsService.removeMember(projectId, userId);
   }
 }

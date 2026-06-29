@@ -117,6 +117,58 @@ export class ProjectsService {
     return { success: true, data: { message: 'Project archived successfully' } };
   }
 
+  // ─── Member management ─────────────────────────────────────────────────────
+
+  async getMembers(projectId: string) {
+    const members = await this.prisma.projectMember.findMany({
+      where: { projectId },
+      include: {
+        user: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
+        addedByUser: { select: { id: true, fullName: true } },
+      },
+      orderBy: { addedAt: 'asc' },
+    });
+    return { success: true, data: members.map((m) => ({
+      id: m.id,
+      user: m.user,
+      addedBy: m.addedByUser,
+      addedAt: m.addedAt,
+    })) };
+  }
+
+  async addMember(projectId: string, userId: string, actor: JwtPayload) {
+    const project = await this.prisma.project.findFirst({ where: { id: projectId, deletedAt: null } });
+    if (!project) throw new NotFoundException('Project not found');
+
+    const user = await this.prisma.user.findFirst({ where: { id: userId, deletedAt: null } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const existing = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+    });
+    if (existing) throw new BadRequestException('User is already a member of this project');
+
+    const member = await this.prisma.projectMember.create({
+      data: { projectId, userId, addedBy: actor.sub },
+      include: { user: { select: { id: true, fullName: true, email: true, avatarUrl: true } } },
+    });
+
+    return { success: true, data: { id: member.id, user: member.user, addedAt: member.addedAt } };
+  }
+
+  async removeMember(projectId: string, userId: string) {
+    const member = await this.prisma.projectMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+    });
+    if (!member) throw new NotFoundException('Member not found');
+
+    await this.prisma.projectMember.delete({
+      where: { projectId_userId: { projectId, userId } },
+    });
+
+    return { success: true, data: { message: 'Member removed' } };
+  }
+
   private async format(project: any) {
     const taskCount = await this.projectsRepository.getTaskCount(project.id);
     return {
