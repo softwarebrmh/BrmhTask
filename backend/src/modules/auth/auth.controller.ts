@@ -6,6 +6,7 @@ import { LoginDto } from './dto/login.dto';
 import { AcceptInviteDto } from './dto/accept-invite.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
+import { EmployeeSignupDto } from './dto/employee-signup.dto';
 import { Public } from '../../common/decorators/public.decorator';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { JwtPayload } from '../../common/interfaces/jwt-payload.interface';
@@ -37,6 +38,12 @@ export class AuthController {
   @Post('invite/accept')
   acceptInviteOld(@Body() dto: AcceptInviteDto) {
     return this.authService.acceptInvite(dto);
+  }
+
+  @Public()
+  @Post('join')
+  employeeSignup(@Body() dto: EmployeeSignupDto) {
+    return this.authService.employeeSignup(dto);
   }
 
   @Public()

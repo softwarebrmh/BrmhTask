@@ -21,6 +21,7 @@ import { NotesModule } from './modules/notes/notes.module';
 import { CommentsModule } from './modules/comments/comments.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { HealthModule } from './modules/health/health.module';
+import { MailModule } from './modules/mail/mail.module';
 
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 
@@ -46,6 +47,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
     CommentsModule,
     DashboardModule,
     HealthModule,
+    MailModule,
   ],
   providers: [
     {

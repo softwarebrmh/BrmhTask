@@ -21,4 +21,11 @@ export default registerAs('app', () => ({
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   ],
   inviteTokenExpiryDays: 7,
+  smtp: {
+    host: process.env.SMTP_HOST ?? 'smtp.mailtrap.io',
+    port: parseInt(process.env.SMTP_PORT ?? '2525', 10),
+    user: process.env.SMTP_USER ?? '',
+    pass: process.env.SMTP_PASS ?? '',
+    from: process.env.SMTP_FROM ?? 'BHRM Teams <noreply@bhrm.local>',
+  },
 }));

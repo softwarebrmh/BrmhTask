@@ -18,6 +18,8 @@ export const authApi = {
     apiClient.post<SingleResponse<{ message: string }>>('/auth/forgot-password', data),
   resetPassword: (data: { token: string; password: string }) =>
     apiClient.post<SingleResponse<{ message: string }>>('/auth/reset-password', data),
+  employeeSignup: (data: { fullName: string; email: string; password: string; companySlug: string }) =>
+    apiClient.post<SingleResponse<AuthResponse>>('/auth/join', data),
 };
 
 // ─── Users ────────────────────────────────────────────────────────────────────

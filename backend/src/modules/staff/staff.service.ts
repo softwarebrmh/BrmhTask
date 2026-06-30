@@ -14,6 +14,7 @@ import { generateInviteToken } from '../../common/utils/token.util';
 import { buildPaginatedResponse } from '../../common/utils/pagination.util';
 import { AuditEntityType, AuditAction } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class StaffService {
@@ -21,6 +22,7 @@ export class StaffService {
     private staffRepository: StaffRepository,
     private auditService: AuditService,
     private config: ConfigService,
+    private mail: MailService,
   ) {}
 
   async findAll(companyId: string, query: StaffQueryDto) {
@@ -64,9 +66,9 @@ export class StaffService {
       after: { email: dto.email },
     });
 
-    // TODO: send invitation email via mailer service
     const frontendUrl = this.config.get<string>('app.frontendUrl');
-    console.log(`[INVITE] ${frontendUrl}/invite/${inviteToken}`);
+    const inviteUrl = `${frontendUrl}/accept-invite?token=${inviteToken}`;
+    await this.mail.sendInvite(dto.email, inviteUrl);
 
     return { success: true, data: this.format(staff) };
   }
@@ -139,7 +141,8 @@ export class StaffService {
     await this.staffRepository.update(staffId, { inviteToken, inviteExpiresAt });
 
     const frontendUrl = this.config.get<string>('app.frontendUrl');
-    console.log(`[INVITE RESENT] ${frontendUrl}/invite/${inviteToken}`);
+    const inviteUrl = `${frontendUrl}/accept-invite?token=${inviteToken}`;
+    await this.mail.sendInvite(staff.email, inviteUrl);
 
     return { success: true, data: { message: 'Invitation resent successfully' } };
   }

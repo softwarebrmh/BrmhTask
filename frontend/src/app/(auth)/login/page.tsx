@@ -137,6 +137,13 @@ export default function LoginPage() {
         </div>
       </div>
 
+      <p className="mt-2 text-center text-sm text-gray-500">
+        New employee?{' '}
+        <Link href="/signup" className="font-semibold text-gray-800 hover:text-gray-950 transition-colors">
+          Create account
+        </Link>
+      </p>
+
       <button
         type="button"
         onClick={() => alert('Google authentication is not configured for MVP local environment.')}

@@ -45,6 +45,21 @@ export function useAcceptInvite() {
   });
 }
 
+export function useEmployeeSignup() {
+  const { setAuth } = useAuthStore();
+  const router = useRouter();
+
+  return useMutation({
+    mutationFn: (data: { fullName: string; email: string; password: string; companySlug: string }) =>
+      authApi.employeeSignup(data),
+    onSuccess: ({ data }) => {
+      setAuth(data.data.user, data.data.accessToken);
+      router.push('/dashboard');
+    },
+    onError: (err) => toast.error(extractError(err)),
+  });
+}
+
 export function useForgotPassword() {
   return useMutation({
     mutationFn: (data: { email: string }) => authApi.forgotPassword(data),
