@@ -11,9 +11,9 @@ const taskBaseInclude = {
     where: { isActive: true },
     include: { user: { select: userSelect } },
   },
+  parentTask: { select: { id: true, name: true, taskNumber: true } },
   _count: {
     select: {
-      steps: { where: { deletedAt: null } },
       subTasks: { where: { deletedAt: null } },
     },
   },
@@ -25,65 +25,6 @@ export class TasksRepository {
 
   async create(data: any) {
     return this.prisma.task.create({ data, include: taskBaseInclude });
-  }
-
-  async findMany(
-    sprintId: string,
-    page: number,
-    limit: number,
-    filters: {
-      status?: TaskStatus;
-      priority?: TaskPriority;
-      assigneeId?: string;
-      search?: string;
-      parentTaskId?: string | null;
-    },
-  ) {
-    const { skip, take } = getPaginationOffset({ page, limit });
-    const where: any = { sprintId, deletedAt: null };
-
-    if (filters.status) where.status = filters.status;
-    if (filters.priority) where.priority = filters.priority;
-    if (filters.search) where.name = { contains: filters.search, mode: 'insensitive' };
-    if (filters.assigneeId) where.assignees = { some: { userId: filters.assigneeId, isActive: true } };
-
-    if (filters.parentTaskId === null) {
-      where.parentTaskId = null;
-    } else if (filters.parentTaskId) {
-      where.parentTaskId = filters.parentTaskId;
-    }
-
-    const [data, total] = await Promise.all([
-      this.prisma.task.findMany({ where, skip, take, orderBy: { createdAt: 'desc' }, include: taskBaseInclude }),
-      this.prisma.task.count({ where }),
-    ]);
-    return { data, total };
-  }
-
-  async findManyForStaff(
-    sprintId: string,
-    userId: string,
-    page: number,
-    limit: number,
-    filters: any,
-  ) {
-    const { skip, take } = getPaginationOffset({ page, limit });
-    const where: any = {
-      sprintId,
-      deletedAt: null,
-      assignees: { some: { userId, isActive: true } },
-    };
-    if (filters.status) where.status = filters.status;
-    if (filters.priority) where.priority = filters.priority;
-    if (filters.search) where.name = { contains: filters.search, mode: 'insensitive' };
-    if (filters.parentTaskId === null) where.parentTaskId = null;
-    else if (filters.parentTaskId) where.parentTaskId = filters.parentTaskId;
-
-    const [data, total] = await Promise.all([
-      this.prisma.task.findMany({ where, skip, take, orderBy: { createdAt: 'desc' }, include: taskBaseInclude }),
-      this.prisma.task.count({ where }),
-    ]);
-    return { data, total };
   }
 
   async findManyForUser(
@@ -100,13 +41,10 @@ export class TasksRepository {
     },
   ) {
     const { skip, take } = getPaginationOffset({ page, limit });
-    const where: any = {
-      deletedAt: null,
-      sprint: { deletedAt: null, project: { deletedAt: null } },
-    };
+    const where: any = { deletedAt: null };
 
-    if (role === 'admin' && companyId) {
-      where.sprint.project.companyId = companyId;
+    if (role === 'owner' && companyId) {
+      where.companyId = companyId;
     } else {
       where.assignees = { some: { userId, isActive: true } };
     }
@@ -139,13 +77,6 @@ export class TasksRepository {
       where: { id, deletedAt: null },
       include: {
         ...taskBaseInclude,
-        sprint: {
-          include: {
-            creator: { select: userSelect },
-            _count: { select: { tasks: { where: { deletedAt: null, parentTaskId: null } } } },
-          },
-        },
-        steps: { where: { deletedAt: null }, orderBy: { order: 'asc' } },
         comments: {
           where: { deletedAt: null },
           orderBy: { createdAt: 'desc' },
@@ -201,19 +132,21 @@ export class TasksRepository {
     });
   }
 
-  async computeStepProgress(taskId: string) {
-    const [total, completed] = await Promise.all([
-      this.prisma.taskStep.count({ where: { taskId, deletedAt: null } }),
-      this.prisma.taskStep.count({ where: { taskId, deletedAt: null, isChecked: true } }),
-    ]);
-    return { total, completed, percentage: total > 0 ? Math.round((completed / total) * 100) : 0 };
+  async getCompanyIdByTask(taskId: string): Promise<string | null> {
+    const task = await this.prisma.task.findFirst({ where: { id: taskId } });
+    return task?.companyId ?? null;
   }
 
-  async getCompanyIdByTask(taskId: string): Promise<string | null> {
-    const task = await this.prisma.task.findFirst({
-      where: { id: taskId },
-      include: { sprint: { include: { project: true } } },
+  async findSubtasks(parentTaskId: string) {
+    return this.prisma.task.findMany({
+      where: { parentTaskId, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        assignees: {
+          where: { isActive: true },
+          include: { user: { select: userSelect } },
+        },
+      },
     });
-    return (task as any)?.sprint?.project?.companyId ?? null;
   }
 }

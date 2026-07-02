@@ -42,13 +42,10 @@ export class NotesService {
   async findOne(taskId: string, noteId: string) {
     const note = await this.prisma.note.findFirst({
       where: { id: noteId, taskId, deletedAt: null },
-      include: {
-        author: { select: { id: true, fullName: true, email: true, avatarUrl: true } },
-        versions: { orderBy: { createdAt: 'desc' } },
-      },
+      include: { author: { select: { id: true, fullName: true, email: true, avatarUrl: true } } },
     });
     if (!note) throw new NotFoundException('Note not found');
-    return { success: true, data: { ...this.format(note), versions: note.versions } };
+    return { success: true, data: this.format(note) };
   }
 
   async create(taskId: string, dto: CreateNoteDto, user: JwtPayload) {
@@ -70,14 +67,9 @@ export class NotesService {
     const note = await this.prisma.note.findFirst({ where: { id: noteId, taskId, deletedAt: null } });
     if (!note) throw new NotFoundException('Note not found');
 
-    if (user.role === UserRole.STAFF && note.authorId !== user.sub) {
+    if (user.role === UserRole.EMPLOYEE && note.authorId !== user.sub) {
       throw new ForbiddenException('You can only edit your own notes');
     }
-
-    const versionCount = await this.prisma.noteVersion.count({ where: { noteId: note.id } });
-    await this.prisma.noteVersion.create({
-      data: { noteId: note.id, content: note.content, version: versionCount + 1, createdBy: user.sub },
-    });
 
     const updated = await this.prisma.note.update({
       where: { id: noteId },
@@ -98,7 +90,7 @@ export class NotesService {
     const note = await this.prisma.note.findFirst({ where: { id: noteId, taskId, deletedAt: null } });
     if (!note) throw new NotFoundException('Note not found');
 
-    if (user.role === UserRole.STAFF && note.authorId !== user.sub) {
+    if (user.role === UserRole.EMPLOYEE && note.authorId !== user.sub) {
       throw new ForbiddenException('You can only delete your own notes');
     }
 

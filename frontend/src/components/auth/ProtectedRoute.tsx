@@ -6,7 +6,7 @@ import Link from 'next/link';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  allowedRoles: ('admin' | 'staff')[];
+  allowedRoles: ('owner' | 'employee')[];
 }
 
 export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
@@ -16,7 +16,7 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     return null; // Will be handled by AuthGuard
   }
 
-  const hasAccess = user && allowedRoles.includes(user.role as 'admin' | 'staff');
+  const hasAccess = user && allowedRoles.includes(user.role as 'owner' | 'employee');
 
   if (!hasAccess) {
     return (

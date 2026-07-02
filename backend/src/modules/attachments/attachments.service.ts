@@ -88,7 +88,7 @@ export class AttachmentsService {
     });
     if (!attachment) throw new NotFoundException('Attachment not found');
 
-    if (user.role === UserRole.STAFF && attachment.uploaderId !== user.sub) {
+    if (user.role === UserRole.EMPLOYEE && attachment.uploaderId !== user.sub) {
       throw new ForbiddenException('You can only delete your own attachments');
     }
 

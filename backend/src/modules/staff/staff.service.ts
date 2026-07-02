@@ -31,7 +31,17 @@ export class StaffService {
     const { data, total } = await this.staffRepository.findMany(
       companyId, page, limit, query.status, query.search,
     );
-    return buildPaginatedResponse(data.map(this.format), total, { page, limit });
+
+    const userIds = data.map((s) => s.userId).filter((id): id is string => !!id);
+    const taskCounts = userIds.length
+      ? await this.staffRepository.countActiveTasksByUser(companyId, userIds)
+      : new Map<string, number>();
+
+    return buildPaginatedResponse(
+      data.map((s) => this.format(s, taskCounts.get(s.userId ?? '') ?? 0)),
+      total,
+      { page, limit },
+    );
   }
 
   async invite(companyId: string, dto: InviteStaffDto, user: JwtPayload) {
@@ -58,9 +68,9 @@ export class StaffService {
 
     await this.auditService.log({
       companyId,
-      entityType: AuditEntityType.staff,
+      entityType: AuditEntityType.member,
       entityId: staff.id,
-      action: AuditAction.STAFF_INVITED,
+      action: AuditAction.MEMBER_INVITED,
       actorId: user.sub,
       actorName: user.email,
       after: { email: dto.email },
@@ -96,9 +106,9 @@ export class StaffService {
 
     await this.auditService.log({
       companyId,
-      entityType: AuditEntityType.staff,
+      entityType: AuditEntityType.member,
       entityId: staffId,
-      action: AuditAction.STAFF_SUSPENDED,
+      action: AuditAction.MEMBER_SUSPENDED,
       actorId: user.sub,
       actorName: user.email,
     });
@@ -116,9 +126,9 @@ export class StaffService {
 
     await this.auditService.log({
       companyId,
-      entityType: AuditEntityType.staff,
+      entityType: AuditEntityType.member,
       entityId: staffId,
-      action: AuditAction.STAFF_ACTIVATED,
+      action: AuditAction.MEMBER_ACTIVATED,
       actorId: user.sub,
       actorName: user.email,
     });
@@ -147,7 +157,7 @@ export class StaffService {
     return { success: true, data: { message: 'Invitation resent successfully' } };
   }
 
-  private format(staff: any) {
+  private format(staff: any, activeTaskCount = 0) {
     return {
       id: staff.id,
       companyId: staff.companyId,
@@ -158,6 +168,7 @@ export class StaffService {
       joinedAt: staff.joinedAt,
       lastActiveAt: staff.lastActiveAt,
       createdAt: staff.createdAt,
+      activeTaskCount,
     };
   }
 }

@@ -17,7 +17,7 @@ export class TaskAccessGuard implements CanActivate {
     const taskId = params.taskId;
 
     if (!taskId) return true;
-    if (user?.role === UserRole.ADMIN) return true;
+    if (user?.role === UserRole.OWNER) return true;
 
     const assignment = await this.prisma.taskAssignee.findFirst({
       where: { taskId, userId: user.sub, isActive: true },

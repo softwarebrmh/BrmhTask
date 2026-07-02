@@ -59,10 +59,10 @@ export class CompanyService {
 
     const isOwner = company.ownerId === user.sub;
     if (!isOwner) {
-      const staffRecord = await this.prisma.companyStaff.findFirst({
+      const memberRecord = await this.prisma.companyMember.findFirst({
         where: { companyId, userId: user.sub, status: 'active', deletedAt: null },
       });
-      if (!staffRecord) throw new ForbiddenException('You do not have access to this company');
+      if (!memberRecord) throw new ForbiddenException('You do not have access to this company');
     }
 
     return { success: true, data: this.format(company) };
@@ -99,6 +99,96 @@ export class CompanyService {
     });
 
     return { success: true, data: this.format(updated) };
+  }
+
+  async getAllTasks(companyId: string, query: { status?: string; priority?: string; search?: string; assigneeId?: string; page?: number; limit?: number }) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 50;
+    const skip = (page - 1) * limit;
+
+    const where: any = { deletedAt: null, companyId, parentTaskId: null };
+    if (query.status) where.status = query.status;
+    if (query.priority) where.priority = query.priority;
+    if (query.search) where.name = { contains: query.search, mode: 'insensitive' };
+    if (query.assigneeId) where.assignees = { some: { userId: query.assigneeId, isActive: true } };
+
+    const [tasks, total] = await Promise.all([
+      this.prisma.task.findMany({
+        where,
+        include: {
+          assignees: {
+            where: { isActive: true },
+            include: { user: { select: { id: true, fullName: true, email: true, avatarUrl: true } } },
+          },
+          _count: { select: { subTasks: { where: { deletedAt: null } } } },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+      }),
+      this.prisma.task.count({ where }),
+    ]);
+
+    return {
+      success: true,
+      data: tasks.map((t) => ({
+        id: t.id,
+        displayId: `TK-${1000 + t.taskNumber}`,
+        name: t.name,
+        status: t.status,
+        priority: t.priority,
+        plannedDueDate: t.plannedDueDate,
+        createdAt: t.createdAt,
+        assignees: t.assignees.map((a) => a.user).filter(Boolean),
+        subTaskCount: t._count.subTasks,
+      })),
+      meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  async createTask(
+    companyId: string,
+    dto: {
+      name: string; description?: string; priority?: string;
+      assigneeIds?: string[];
+      startDate?: string; plannedDueDate?: string;
+    },
+    user: JwtPayload,
+  ) {
+    const company = await this.prisma.company.findFirst({ where: { id: companyId, deletedAt: null } });
+    if (!company) throw new NotFoundException('Company not found');
+
+    const task = await this.prisma.task.create({
+      data: {
+        companyId,
+        name: dto.name,
+        description: dto.description,
+        priority: (dto.priority as any) ?? 'medium',
+        startDate: dto.startDate ? new Date(dto.startDate) : undefined,
+        plannedDueDate: dto.plannedDueDate ? new Date(dto.plannedDueDate) : undefined,
+        ownerId: user.sub,
+        createdBy: user.sub,
+      },
+    });
+
+    if (dto.assigneeIds?.length) {
+      for (const userId of dto.assigneeIds) {
+        await this.prisma.taskAssignee.create({ data: { taskId: task.id, userId, assignedBy: user.sub } });
+      }
+      await this.auditService.log({
+        companyId, entityType: AuditEntityType.task, entityId: task.id,
+        action: AuditAction.TASK_ASSIGNED, actorId: user.sub, actorName: user.email,
+        metadata: { assignedUserIds: dto.assigneeIds },
+      });
+    }
+
+    await this.auditService.log({
+      companyId, entityType: AuditEntityType.task, entityId: task.id,
+      action: AuditAction.TASK_CREATED, actorId: user.sub, actorName: user.email,
+      after: { name: task.name, priority: task.priority },
+    });
+
+    return { success: true, data: { ...task, displayId: `TK-${1000 + task.taskNumber}` } };
   }
 
   private validateWorkingHours(start: string, end: string) {

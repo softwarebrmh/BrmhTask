@@ -4,11 +4,13 @@ import { useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
-  Clock, Calendar, User, CheckSquare, Paperclip, FileText,
+  Clock, Calendar, User, Paperclip, FileText,
   MessageSquare, Plus, Check, Trash2, Upload, ChevronRight,
   Edit2, X, AlertTriangle, Activity, History, UserPlus,
-  Search, TrendingUp, ArrowRight, Flag,
+  Search, TrendingUp, ArrowRight, Flag, CheckCircle2, ListTree,
 } from 'lucide-react';
 import { Header } from '@/components/layout/header';
 import { Button } from '@/components/ui/button';
@@ -17,23 +19,23 @@ import { Avatar } from '@/components/ui/avatar';
 import { PageSpinner } from '@/components/ui/spinner';
 import { useAuthStore } from '@/lib/stores/auth.store';
 import { useTaskDetail } from '@/lib/hooks/use-tasks';
-import { stepsApi, attachmentsApi, notesApi, commentsApi, tasksApi, staffApi, auditApi } from '@/lib/api';
+import { attachmentsApi, notesApi, commentsApi, tasksApi, staffApi, auditApi, subtasksApi } from '@/lib/api';
 import { taskKeys } from '@/lib/hooks/use-tasks';
 import { formatDate, formatDateTime, formatFileSize, timeAgo, extractError } from '@/lib/utils';
 import toast from 'react-hot-toast';
-import type { TaskStatus, TaskPriority } from '@/types';
+import type { TaskStatus, TaskPriority, TaskTreeNode } from '@/types';
 
 // ─── Valid transitions ─────────────────────────────────────────────────────────
 
 const VALID_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   todo:        ['in_progress'],
   in_progress: ['review', 'todo'],
-  review:      ['done', 'in_progress'],
-  done:        ['review'],
+  review:      ['completed', 'in_progress'],
+  completed:   ['review'],
 };
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
-  todo: 'To Do', in_progress: 'In Progress', review: 'Review', done: 'Done',
+  todo: 'Todo', in_progress: 'In Progress', review: 'Review', completed: 'Completed',
 };
 
 // ─── Section wrapper ───────────────────────────────────────────────────────────
@@ -44,10 +46,13 @@ function Section({ title, icon: Icon, action, children, defaultOpen = true }: {
 }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="rounded-xl border border-gray-100 bg-white overflow-hidden">
-      <button
+    <div className="rounded-xl border border-gray-300 bg-white overflow-hidden">
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen(!open)}
-        className="flex w-full items-center justify-between px-5 py-4 hover:bg-gray-50/50 transition-colors"
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setOpen(!open); }}
+        className="flex w-full items-center justify-between px-5 py-4 hover:bg-gray-50/50 transition-colors cursor-pointer"
       >
         <div className="flex items-center gap-2.5">
           <Icon className="h-4 w-4 text-gray-400" />
@@ -57,147 +62,286 @@ function Section({ title, icon: Icon, action, children, defaultOpen = true }: {
           {action}
           <ChevronRight className={`h-4 w-4 text-gray-300 transition-transform ${open ? 'rotate-90' : ''}`} />
         </div>
-      </button>
-      {open && <div className="border-t border-gray-100 px-5 py-4">{children}</div>}
+      </div>
+      {open && <div className="border-t border-gray-300 px-5 py-4">{children}</div>}
     </div>
   );
 }
 
-// ─── Steps section ─────────────────────────────────────────────────────────────
+// ─── Description section ───────────────────────────────────────────────────────
 
-function StepsSection({ taskId }: { taskId: string }) {
+function DescriptionSection({ description }: { description?: string | null }) {
+  return (
+    <Section title="Description" icon={FileText}>
+      {description ? (
+        <div className="prose prose-sm max-w-none prose-headings:font-semibold prose-headings:text-gray-900 prose-p:text-gray-600 prose-a:text-blue-600 prose-code:text-gray-800 prose-code:bg-gray-100 prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:before:content-none prose-code:after:content-none">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{description}</ReactMarkdown>
+        </div>
+      ) : (
+        <p className="text-sm text-gray-400">No description provided.</p>
+      )}
+    </Section>
+  );
+}
+
+// ─── Hierarchy tree section ────────────────────────────────────────────────────
+
+function countNodes(node: TaskTreeNode): number {
+  return 1 + node.children.reduce((sum, c) => sum + countNodes(c), 0);
+}
+
+function TreeNodeRow({ node, currentTaskId }: { node: TaskTreeNode; currentTaskId: string }) {
+  const isCurrent = node.id === currentTaskId;
+  return (
+    <div>
+      <Link
+        href={`/tasks/${node.id}`}
+        className={`flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors ${
+          isCurrent ? 'bg-gray-900 text-white' : 'hover:bg-gray-50'
+        }`}
+      >
+        <span className={`font-mono text-xs shrink-0 ${isCurrent ? 'text-gray-300' : 'text-gray-400'}`}>{node.displayId}</span>
+        <span className={`text-sm font-medium truncate ${isCurrent ? 'text-white' : 'text-gray-900'}`}>{node.name}</span>
+        <span className="shrink-0"><TaskStatusBadge status={node.status} /></span>
+        <span className="shrink-0"><PriorityBadge priority={node.priority} /></span>
+        {node.assignees.length > 0 && (
+          <div className="flex items-center -space-x-1.5 shrink-0">
+            {node.assignees.slice(0, 3).map((a) => (
+              <Avatar key={a.id} name={a.fullName} src={a.avatarUrl} size="xs" className={isCurrent ? 'ring-2 ring-gray-900' : 'ring-2 ring-white'} />
+            ))}
+          </div>
+        )}
+      </Link>
+      {node.children.length > 0 && (
+        <div className="ml-3 mt-0.5 space-y-0.5 border-l border-gray-200 pl-3">
+          {node.children.map((child) => (
+            <TreeNodeRow key={child.id} node={child} currentTaskId={currentTaskId} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function HierarchyTreeSection({ taskId }: { taskId: string }) {
+  const { data } = useQuery({
+    queryKey: ['task-tree', taskId],
+    queryFn: () => tasksApi.getTree(taskId).then((r) => r.data.data),
+  });
+
+  if (!data || countNodes(data.tree) <= 1) return null;
+
+  return (
+    <Section title="Hierarchy" icon={ListTree} defaultOpen={false}>
+      <TreeNodeRow node={data.tree} currentTaskId={data.currentTaskId} />
+    </Section>
+  );
+}
+
+// ─── Multi-assignee picker (shared by task + subtasks) ─────────────────────────
+
+function AssigneesPicker({ selectedIds, employees, onToggle }: {
+  selectedIds: string[];
+  employees: any[];
+  onToggle: (userId: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+
+  const filtered = employees.filter(
+    (s: any) => s.user && s.user.fullName?.toLowerCase().includes(search.toLowerCase()),
+  );
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-1.5 rounded-lg border border-dashed border-gray-200 px-3 py-1.5 text-xs text-gray-400 hover:border-gray-300 hover:text-gray-600 hover:bg-gray-50 transition-colors w-full"
+      >
+        <UserPlus className="h-3.5 w-3.5" /> Add assignee
+      </button>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+      <div className="flex items-center gap-2 p-2 border-b border-gray-300">
+        <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+        <input
+          autoFocus
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search employees…"
+          className="flex-1 text-sm outline-none"
+        />
+        <button onClick={() => { setOpen(false); setSearch(''); }}>
+          <X className="h-4 w-4 text-gray-400" />
+        </button>
+      </div>
+      <ul className="max-h-40 overflow-y-auto">
+        {filtered.length === 0 && (
+          <li className="px-3 py-2 text-xs text-gray-400 text-center">No active employees found</li>
+        )}
+        {filtered.map((s: any) => {
+          const isSelected = selectedIds.includes(s.user?.id);
+          return (
+            <li key={s.id}>
+              <button
+                onClick={() => s.user && onToggle(s.user.id)}
+                className="flex w-full items-center gap-2.5 px-3 py-2 hover:bg-gray-50 transition-colors"
+              >
+                <Avatar name={s.user?.fullName ?? s.email} size="xs" />
+                <div className="flex-1 min-w-0 text-left">
+                  <p className="text-xs font-medium text-gray-800 truncate">{s.user?.fullName ?? s.email}</p>
+                  {s.designation && <p className="text-xs text-gray-400 truncate">{s.designation}</p>}
+                </div>
+                {isSelected && <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+// ─── Subtasks section ──────────────────────────────────────────────────────────
+
+function SubtasksSection({ taskId, companyId, isAdmin }: { taskId: string; companyId: string; isAdmin: boolean }) {
   const qc = useQueryClient();
-  const [newTitle, setNewTitle] = useState('');
   const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [assigneeIds, setAssigneeIds] = useState<string[]>([]);
 
-  const { data: steps = [] } = useQuery({
-    queryKey: ['steps', taskId],
-    queryFn: () => stepsApi.list(taskId).then((r) => r.data.data),
+  const { data: subtasks = [] } = useQuery({
+    queryKey: ['subtasks', taskId],
+    queryFn: () => subtasksApi.list(taskId).then((r) => r.data.data),
   });
 
-  const toggle = useMutation({
-    mutationFn: ({ stepId, isChecked }: { stepId: string; isChecked: boolean }) =>
-      isChecked ? stepsApi.uncheck(taskId, stepId) : stepsApi.check(taskId, stepId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['steps', taskId] });
-      qc.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
-    },
-    onError: (e) => toast.error(extractError(e)),
+  const { data: staffData } = useQuery({
+    queryKey: ['staff', companyId],
+    queryFn: () => staffApi.list(companyId, { status: 'active' }).then((r) => r.data),
+    enabled: adding && !!companyId,
   });
+  const employees = (staffData?.data ?? []).filter((s: any) => s.user);
 
-  const add = useMutation({
-    mutationFn: (title: string) => stepsApi.create(taskId, { title }),
+  const create = useMutation({
+    mutationFn: () => subtasksApi.create(taskId, { name, assigneeIds: assigneeIds.length ? assigneeIds : undefined }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['steps', taskId] });
+      qc.invalidateQueries({ queryKey: ['subtasks', taskId] });
       qc.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
-      setNewTitle('');
+      setName('');
+      setAssigneeIds([]);
       setAdding(false);
+      toast.success('Subtask added');
     },
     onError: (e) => toast.error(extractError(e)),
   });
 
   const del = useMutation({
-    mutationFn: (stepId: string) => stepsApi.delete(taskId, stepId),
+    mutationFn: (subtaskId: string) => tasksApi.delete(subtaskId),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['steps', taskId] });
+      qc.invalidateQueries({ queryKey: ['subtasks', taskId] });
       qc.invalidateQueries({ queryKey: taskKeys.detail(taskId) });
+      toast.success('Subtask deleted');
     },
     onError: (e) => toast.error(extractError(e)),
   });
 
-  const done = steps.filter((s) => s.isChecked).length;
-  const pct = steps.length > 0 ? Math.round((done / steps.length) * 100) : 0;
+  const toggleAssignee = (userId: string) => {
+    setAssigneeIds((ids) => (ids.includes(userId) ? ids.filter((id) => id !== userId) : [...ids, userId]));
+  };
 
   return (
     <Section
-      title={`Steps${steps.length > 0 ? ` (${done}/${steps.length})` : ''}`}
-      icon={CheckSquare}
+      title={`Subtasks${subtasks.length > 0 ? ` (${subtasks.length})` : ''}`}
+      icon={ListTree}
       action={
-        <button
-          onClick={() => setAdding(true)}
-          className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-colors"
-        >
-          <Plus className="h-3.5 w-3.5" /> Add step
-        </button>
+        !adding && (
+          <button
+            onClick={() => setAdding(true)}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" /> Add subtask
+          </button>
+        )
       }
     >
-      {steps.length > 0 && (
-        <div className="mb-4">
-          <div className="flex items-center justify-between text-xs text-gray-400 mb-1.5">
-            <span>{pct}% complete</span>
-            <span>{done} of {steps.length} done</span>
-          </div>
-          <div className="h-1.5 rounded-full bg-gray-100">
-            <div
-              className={`h-1.5 rounded-full transition-all ${pct === 100 ? 'bg-emerald-500' : 'bg-gray-900'}`}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-1">
-        {steps.map((step) => (
-          <div key={step.id} className="group flex items-center gap-2.5 rounded-lg px-2 py-2 hover:bg-gray-50">
-            <button
-              onClick={() => toggle.mutate({ stepId: step.id, isChecked: step.isChecked })}
-              className={`h-4 w-4 shrink-0 rounded border flex items-center justify-center transition-colors ${
-                step.isChecked
-                  ? 'border-emerald-500 bg-emerald-500 text-white'
-                  : 'border-gray-300 hover:border-gray-400'
-              }`}
-            >
-              {step.isChecked && <Check className="h-3 w-3" />}
-            </button>
-            <span className={`flex-1 text-sm ${step.isChecked ? 'line-through text-gray-400' : 'text-gray-700'}`}>
-              {step.title}
-            </span>
-            {step.isChecked && step.checkedBy && (
-              <span className="hidden group-hover:inline text-xs text-gray-400">
-                by {step.checkedBy.fullName}
-              </span>
+      <ul className="divide-y divide-gray-100">
+        {subtasks.map((s) => (
+          <li key={s.id} className="group flex items-center gap-3 py-2.5">
+            <Link href={`/tasks/${s.id}`} className="flex-1 min-w-0 flex items-center gap-2.5">
+              <span className="font-mono text-xs text-gray-400 shrink-0">{s.displayId}</span>
+              <span className="text-sm font-medium text-gray-900 truncate hover:underline">{s.name}</span>
+            </Link>
+            <TaskStatusBadge status={s.status} />
+            <PriorityBadge priority={s.priority} />
+            {s.assignees.length > 0 ? (
+              <div className="flex items-center -space-x-1.5 shrink-0">
+                {s.assignees.slice(0, 3).map((a) => (
+                  <Avatar key={a.id} name={a.fullName} src={a.avatarUrl} size="xs" className="ring-2 ring-white" />
+                ))}
+                {s.assignees.length > 3 && (
+                  <span className="ml-2 text-xs text-gray-400">+{s.assignees.length - 3}</span>
+                )}
+              </div>
+            ) : (
+              <span className="text-xs text-gray-400 w-12 text-center">—</span>
             )}
-            <button
-              onClick={() => del.mutate(step.id)}
-              className="hidden group-hover:flex text-gray-300 hover:text-red-500 transition-colors"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </button>
-          </div>
+            <span className="text-xs text-gray-400 w-20 text-right shrink-0">
+              {s.plannedDueDate ? formatDate(s.plannedDueDate) : '—'}
+            </span>
+            {isAdmin && (
+              <button
+                onClick={() => del.mutate(s.id)}
+                className="hidden group-hover:flex text-gray-300 hover:text-red-500 transition-colors shrink-0"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </li>
         ))}
-      </div>
+      </ul>
 
-      {(adding || steps.length === 0) && (
-        <div className="mt-3 flex gap-2">
+      {adding && (
+        <div className="mt-3 space-y-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
           <input
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            placeholder="Step title…"
-            autoFocus={adding}
-            className="h-8 flex-1 rounded-md border border-gray-200 px-3 text-sm focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && newTitle.trim()) add.mutate(newTitle.trim());
-              if (e.key === 'Escape') { setAdding(false); setNewTitle(''); }
-            }}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Subtask title…"
+            autoFocus
+            className="h-8 w-full rounded-md border border-gray-200 bg-white px-3 text-sm focus:border-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-900/10"
+            onKeyDown={(e) => { if (e.key === 'Escape') { setAdding(false); setName(''); } }}
           />
-          <Button
-            size="sm"
-            onClick={() => newTitle.trim() && add.mutate(newTitle.trim())}
-            disabled={!newTitle.trim() || add.isPending}
-            loading={add.isPending}
-          >
-            Add
-          </Button>
-          {adding && (
-            <Button size="sm" variant="ghost" onClick={() => { setAdding(false); setNewTitle(''); }}>
-              <X className="h-4 w-4" />
-            </Button>
+          {assigneeIds.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {assigneeIds.map((id) => {
+                const emp = employees.find((e: any) => e.user?.id === id);
+                if (!emp) return null;
+                return (
+                  <div key={id} className="flex items-center gap-1 rounded-md border border-gray-200 bg-white py-0.5 pl-1 pr-1.5">
+                    <Avatar name={emp.user!.fullName} size="xs" />
+                    <span className="text-xs text-gray-700">{emp.user!.fullName}</span>
+                    <button onClick={() => toggleAssignee(id)} className="text-gray-300 hover:text-red-500">
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           )}
+          <AssigneesPicker selectedIds={assigneeIds} employees={employees} onToggle={toggleAssignee} />
+          <div className="flex gap-2 justify-end">
+            <Button size="sm" variant="ghost" onClick={() => { setAdding(false); setName(''); setAssigneeIds([]); }}>Cancel</Button>
+            <Button size="sm" onClick={() => name.trim() && create.mutate()} disabled={!name.trim() || create.isPending} loading={create.isPending}>
+              Add
+            </Button>
+          </div>
         </div>
       )}
 
-      {steps.length === 0 && !adding && (
-        <p className="py-2 text-sm text-gray-400">No steps yet. Steps help track granular progress.</p>
+      {subtasks.length === 0 && !adding && (
+        <p className="py-2 text-sm text-gray-400">No subtasks yet.</p>
       )}
     </Section>
   );
@@ -214,7 +358,7 @@ function EffortSection({ task, isAdmin }: { task: any; isAdmin: boolean }) {
     mutationFn: () =>
       tasksApi.updateEffort(task.id, {
         actualEffortPh: form.actual ? parseFloat(form.actual) : undefined,
-        estimatedEffortPh: form.estimated ? parseFloat(form.estimated) : undefined,
+        estimatedEffortPh: isAdmin && form.estimated ? parseFloat(form.estimated) : undefined,
       }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: taskKeys.detail(task.id) });
@@ -225,25 +369,27 @@ function EffortSection({ task, isAdmin }: { task: any; isAdmin: boolean }) {
     onError: (e) => toast.error(extractError(e)),
   });
 
-  const planned   = Number(task.plannedEffortPh ?? 0);
   const estimated = Number(task.estimatedEffortPh ?? 0);
   const actual    = Number(task.actualEffortPh ?? 0);
-  const remaining = Math.max(0, estimated - actual);
   const slippage  = Number(task.slippagePh ?? 0);
 
   const metrics = [
-    { label: 'Planned',   value: planned,   unit: 'h', color: 'text-gray-900' },
     { label: 'Estimated', value: estimated, unit: 'h', color: 'text-blue-700' },
-    { label: 'Actual',    value: actual,    unit: 'h', color: actual > planned ? 'text-red-600' : 'text-gray-900' },
-    { label: 'Remaining', value: remaining, unit: 'h', color: remaining === 0 ? 'text-emerald-600' : 'text-gray-900' },
+    { label: 'Actual',    value: actual,    unit: 'h', color: slippage > 0 ? 'text-red-600' : 'text-gray-900' },
   ];
+
+  const slippageBanner = slippage === 0
+    ? 'On track'
+    : slippage > 0
+      ? `+${slippage}h behind`
+      : `${slippage}h ahead`;
 
   return (
     <Section
       title="Effort Tracking"
       icon={TrendingUp}
       action={
-        isAdmin && !logging ? (
+        !logging ? (
           <button
             onClick={() => { setLogging(true); setForm({ actual: String(actual), estimated: String(estimated) }); }}
             className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-colors"
@@ -253,27 +399,21 @@ function EffortSection({ task, isAdmin }: { task: any; isAdmin: boolean }) {
         ) : undefined
       }
     >
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3">
         {metrics.map(({ label, value, unit, color }) => (
-          <div key={label} className="rounded-lg border border-gray-100 bg-gray-50/50 p-3">
+          <div key={label} className="rounded-lg border border-gray-300 bg-gray-50/50 p-3">
             <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">{label}</p>
             <p className={`text-xl font-bold ${color}`}>{value}<span className="text-sm font-normal ml-0.5">{unit}</span></p>
           </div>
         ))}
       </div>
 
-      {slippage !== 0 && (
-        <div className={`mt-3 flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm ${
-          slippage > 0 ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'
-        }`}>
-          <AlertTriangle className="h-4 w-4 shrink-0" />
-          <span>
-            {slippage > 0
-              ? `${slippage}h over planned — review timeline with your team`
-              : `${Math.abs(slippage)}h under planned — great execution`}
-          </span>
-        </div>
-      )}
+      <div className={`mt-3 flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm ${
+        slippage > 0 ? 'bg-red-50 text-red-700' : slippage < 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-50 text-gray-600'
+      }`}>
+        {slippage === 0 ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertTriangle className="h-4 w-4 shrink-0" />}
+        <span>{slippageBanner}</span>
+      </div>
 
       {logging && (
         <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
@@ -290,17 +430,19 @@ function EffortSection({ task, isAdmin }: { task: any; isAdmin: boolean }) {
                 className="h-8 w-full rounded-md border border-gray-200 bg-white px-3 text-sm focus:border-gray-400 focus:outline-none"
               />
             </div>
-            <div>
-              <label className="block text-xs text-gray-500 mb-1">Estimated hours</label>
-              <input
-                type="number"
-                min="0"
-                step="0.25"
-                value={form.estimated}
-                onChange={(e) => setForm((f) => ({ ...f, estimated: e.target.value }))}
-                className="h-8 w-full rounded-md border border-gray-200 bg-white px-3 text-sm focus:border-gray-400 focus:outline-none"
-              />
-            </div>
+            {isAdmin && (
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">Estimated hours</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.25"
+                  value={form.estimated}
+                  onChange={(e) => setForm((f) => ({ ...f, estimated: e.target.value }))}
+                  className="h-8 w-full rounded-md border border-gray-200 bg-white px-3 text-sm focus:border-gray-400 focus:outline-none"
+                />
+              </div>
+            )}
           </div>
           <div className="flex gap-2 justify-end">
             <Button size="sm" variant="ghost" onClick={() => setLogging(false)}>Cancel</Button>
@@ -502,7 +644,7 @@ function NotesSection({ taskId }: { taskId: string }) {
 
       <div className="space-y-3">
         {notes.map((note) => (
-          <div key={note.id} className="group rounded-lg border border-gray-100 bg-white p-4">
+          <div key={note.id} className="group rounded-lg border border-gray-300 bg-white p-4">
             {editingId === note.id ? (
               <div className="space-y-2">
                 <input
@@ -549,7 +691,6 @@ function NotesSection({ taskId }: { taskId: string }) {
                   <span>{note.author.fullName}</span>
                   <span>·</span>
                   <span>{timeAgo(note.updatedAt)}</span>
-                  {(note as any).version > 1 && <span className="text-gray-300">· v{(note as any).version}</span>}
                 </div>
               </>
             )}
@@ -648,7 +789,7 @@ function CommentsSection({ taskId }: { taskId: string }) {
               </div>
 
               {c.replies.length > 0 && (
-                <div className="mt-3 pl-4 border-l-2 border-gray-100 space-y-2">
+                <div className="mt-3 pl-4 border-l-2 border-gray-300 space-y-2">
                   {c.replies.map((r) => (
                     <div key={r.id} className="flex gap-2">
                       {r.author && <Avatar name={r.author.fullName} size="xs" className="shrink-0 mt-0.5" />}
@@ -696,7 +837,7 @@ function CommentsSection({ taskId }: { taskId: string }) {
           <p className="py-2 text-sm text-gray-400">No comments yet. Start the conversation.</p>
         )}
 
-        <div className="flex gap-3 pt-3 border-t border-gray-100">
+        <div className="flex gap-3 pt-3 border-t border-gray-300">
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
@@ -747,8 +888,8 @@ function AssignmentHistory({ taskId }: { taskId: string }) {
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-0.5">
-                Assigned by {entry.assignedByUser?.fullName ?? '—'} · {timeAgo(entry.assignedAt)}
-                {entry.unassignedAt && ` · Removed ${timeAgo(entry.unassignedAt)}`}
+                {formatDate(entry.assignedAt)}{entry.unassignedAt ? ` - ${formatDate(entry.unassignedAt)}` : ' - present'}
+                {' · assigned by '}{entry.assignedBy?.fullName ?? '—'}
               </p>
             </div>
           </li>
@@ -794,110 +935,56 @@ function AuditTimeline({ taskId }: { taskId: string }) {
   );
 }
 
-// ─── Assignee picker (admin) ───────────────────────────────────────────────────
+// ─── Assignees card ──────────────────────────────────────────────────────────────
 
-function AssigneePicker({ task, companyId }: { task: any; companyId: string }) {
+function AssigneesCard({ task, companyId }: { task: any; companyId: string }) {
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
 
   const { data: staffData } = useQuery({
     queryKey: ['staff', companyId],
     queryFn: () => staffApi.list(companyId, { status: 'active' }).then((r) => r.data),
-    enabled: open && !!companyId,
+    enabled: !!companyId,
   });
+  const employees = (staffData?.data ?? []).filter((s: any) => s.user);
 
   const assign = useMutation({
-    mutationFn: (ids: string[]) => tasksApi.assign(task.id, ids),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: taskKeys.detail(task.id) }); toast.success('Assignees updated'); },
+    mutationFn: (userId: string) => tasksApi.assign(task.id, [userId]),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: taskKeys.detail(task.id) }); toast.success('Assignee added'); },
     onError: (e) => toast.error(extractError(e)),
   });
 
   const unassign = useMutation({
     mutationFn: (userId: string) => tasksApi.unassign(task.id, userId),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: taskKeys.detail(task.id) }); toast.success('Removed'); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: taskKeys.detail(task.id) }); toast.success('Assignee removed'); },
     onError: (e) => toast.error(extractError(e)),
   });
 
-  const activeAssigneeIds = new Set<string>(task.assignees.map((a: any) => String(a.id)));
+  const selectedIds: string[] = task.assignees.map((a: any) => a.id);
 
-  const staffList = (staffData?.data ?? []).filter(
-    (s: any) => s.user && s.user.fullName?.toLowerCase().includes(search.toLowerCase()),
-  );
-
-  const toggleMember = (userId: string) => {
-    if (activeAssigneeIds.has(userId)) {
-      unassign.mutate(userId);
-    } else {
-      const newIds = [...Array.from(activeAssigneeIds), userId];
-      assign.mutate(newIds);
-    }
+  const toggle = (userId: string) => {
+    if (selectedIds.includes(userId)) unassign.mutate(userId);
+    else assign.mutate(userId);
   };
 
   return (
     <div>
-      <div className="flex flex-wrap gap-1.5 mb-2">
-        {task.assignees.map((a: any) => (
-          <div key={a.id} className="group flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 py-1 pl-1 pr-2">
-            <Avatar name={a.fullName} src={a.avatarUrl} size="xs" />
-            <span className="text-xs text-gray-700 font-medium">{a.fullName}</span>
-            <button
-              onClick={() => unassign.mutate(a.id)}
-              className="hidden group-hover:flex text-gray-300 hover:text-red-500 transition-colors ml-0.5"
-            >
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        ))}
-      </div>
-
-      {!open ? (
-        <button
-          onClick={() => setOpen(true)}
-          className="flex items-center gap-1.5 rounded-lg border border-dashed border-gray-200 px-3 py-1.5 text-xs text-gray-400 hover:border-gray-300 hover:text-gray-600 hover:bg-gray-50 transition-colors w-full"
-        >
-          <UserPlus className="h-3.5 w-3.5" /> Add assignee
-        </button>
-      ) : (
-        <div className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-          <div className="flex items-center gap-2 p-2 border-b border-gray-100">
-            <Search className="h-3.5 w-3.5 text-gray-400 shrink-0" />
-            <input
-              autoFocus
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search employees…"
-              className="flex-1 text-sm outline-none"
-            />
-            <button onClick={() => { setOpen(false); setSearch(''); }}>
-              <X className="h-4 w-4 text-gray-400" />
-            </button>
-          </div>
-          <ul className="max-h-40 overflow-y-auto">
-            {staffList.length === 0 && (
-              <li className="px-3 py-2 text-xs text-gray-400 text-center">No active employees found</li>
-            )}
-            {staffList.map((s: any) => {
-              const isAssigned = activeAssigneeIds.has(s.user?.id);
-              return (
-                <li key={s.id}>
-                  <button
-                    onClick={() => s.user && toggleMember(s.user.id)}
-                    className="flex w-full items-center gap-2.5 px-3 py-2 hover:bg-gray-50 transition-colors"
-                  >
-                    <Avatar name={s.user?.fullName ?? s.email} size="xs" />
-                    <div className="flex-1 min-w-0 text-left">
-                      <p className="text-xs font-medium text-gray-800 truncate">{s.user?.fullName ?? s.email}</p>
-                      {s.designation && <p className="text-xs text-gray-400 truncate">{s.designation}</p>}
-                    </div>
-                    {isAssigned && <Check className="h-3.5 w-3.5 text-emerald-500 shrink-0" />}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+      {task.assignees.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {task.assignees.map((a: any) => (
+            <div key={a.id} className="group flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 py-1 pl-1 pr-2">
+              <Avatar name={a.fullName} src={a.avatarUrl} size="xs" />
+              <span className="text-xs text-gray-700 font-medium">{a.fullName}</span>
+              <button
+                onClick={() => unassign.mutate(a.id)}
+                className="hidden group-hover:flex text-gray-300 hover:text-red-500 transition-colors ml-0.5"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
         </div>
       )}
+      <AssigneesPicker selectedIds={selectedIds} employees={employees} onToggle={toggle} />
     </div>
   );
 }
@@ -913,13 +1000,13 @@ function PropertiesSidebar({ task, isAdmin, companyId }: { task: any; isAdmin: b
     onError: (e) => toast.error(extractError(e)),
   });
 
-  const updateTask = useMutation({
-    mutationFn: (data: { priority?: TaskPriority }) => tasksApi.update(task.id, data),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: taskKeys.detail(task.id) }); toast.success('Updated'); },
+  const updatePriority = useMutation({
+    mutationFn: (priority: TaskPriority) => tasksApi.updatePriority(task.id, priority),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: taskKeys.detail(task.id) }); toast.success('Priority updated'); },
     onError: (e) => toast.error(extractError(e)),
   });
 
-  const isOverdue = task.plannedDueDate && task.status !== 'done' && new Date(task.plannedDueDate) < new Date();
+  const isOverdue = task.plannedDueDate && task.status !== 'completed' && new Date(task.plannedDueDate) < new Date();
 
   const PRIORITIES: TaskPriority[] = ['low', 'medium', 'high', 'critical'];
   const PRIORITY_COLORS: Record<TaskPriority, string> = {
@@ -929,7 +1016,7 @@ function PropertiesSidebar({ task, isAdmin, companyId }: { task: any; isAdmin: b
   return (
     <div className="space-y-3 lg:sticky lg:top-6">
       {/* Status */}
-      <div className="rounded-xl border border-gray-100 bg-white p-4">
+      <div className="rounded-xl border border-gray-300 bg-white p-4">
         <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Status</p>
         <TaskStatusBadge status={task.status} />
         <div className="mt-3 flex flex-col gap-1.5">
@@ -948,14 +1035,14 @@ function PropertiesSidebar({ task, isAdmin, companyId }: { task: any; isAdmin: b
       </div>
 
       {/* Priority */}
-      <div className="rounded-xl border border-gray-100 bg-white p-4">
+      <div className="rounded-xl border border-gray-300 bg-white p-4">
         <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">Priority</p>
         {isAdmin ? (
           <div className="flex flex-wrap gap-1.5">
             {PRIORITIES.map((p) => (
               <button
                 key={p}
-                onClick={() => task.priority !== p && updateTask.mutate({ priority: p })}
+                onClick={() => task.priority !== p && updatePriority.mutate(p)}
                 className={`flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors capitalize ${
                   task.priority === p
                     ? 'border-gray-900 bg-gray-900 text-white'
@@ -973,12 +1060,12 @@ function PropertiesSidebar({ task, isAdmin, companyId }: { task: any; isAdmin: b
       </div>
 
       {/* Assignees */}
-      <div className="rounded-xl border border-gray-100 bg-white p-4">
+      <div className="rounded-xl border border-gray-300 bg-white p-4">
         <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3 flex items-center gap-1.5">
           <User className="h-3.5 w-3.5" /> Assignees
         </p>
         {isAdmin ? (
-          <AssigneePicker task={task} companyId={companyId} />
+          <AssigneesCard task={task} companyId={companyId} />
         ) : task.assignees.length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
             {task.assignees.map((a: any) => (
@@ -994,8 +1081,18 @@ function PropertiesSidebar({ task, isAdmin, companyId }: { task: any; isAdmin: b
       </div>
 
       {/* Details */}
-      <div className="rounded-xl border border-gray-100 bg-white p-4 space-y-3">
+      <div className="rounded-xl border border-gray-300 bg-white p-4 space-y-3">
         <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Details</p>
+
+        {task.owner && (
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-gray-500">Owner</span>
+            <div className="flex items-center gap-1.5">
+              <Avatar name={task.owner.fullName} size="xs" />
+              <span className="font-medium text-gray-800">{task.owner.fullName}</span>
+            </div>
+          </div>
+        )}
 
         {task.plannedDueDate && (
           <div className="flex items-center justify-between text-xs">
@@ -1009,36 +1106,11 @@ function PropertiesSidebar({ task, isAdmin, companyId }: { task: any; isAdmin: b
           </div>
         )}
 
-        {task.owner && (
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-gray-500">Owner</span>
-            <div className="flex items-center gap-1.5">
-              <Avatar name={task.owner.fullName} size="xs" />
-              <span className="font-medium text-gray-800">{task.owner.fullName}</span>
-            </div>
-          </div>
-        )}
-
-        {task.stepProgress?.total > 0 && (
-          <div>
-            <div className="flex justify-between text-xs text-gray-500 mb-1.5">
-              <span className="flex items-center gap-1"><CheckSquare className="h-3.5 w-3.5" /> Steps</span>
-              <span className="font-medium">{task.stepProgress.percentage}%</span>
-            </div>
-            <div className="h-1.5 rounded-full bg-gray-100">
-              <div
-                className={`h-1.5 rounded-full transition-all ${task.stepProgress.percentage === 100 ? 'bg-emerald-500' : 'bg-gray-900'}`}
-                style={{ width: `${task.stepProgress.percentage}%` }}
-              />
-            </div>
-          </div>
-        )}
-
         <div className="flex items-center justify-between text-xs">
           <span className="text-gray-500 flex items-center gap-1.5">
-            <Clock className="h-3.5 w-3.5" /> Planned
+            <Clock className="h-3.5 w-3.5" /> Estimated
           </span>
-          <span className="font-medium text-gray-900">{task.plannedEffortPh}h</span>
+          <span className="font-medium text-gray-900">{task.estimatedEffortPh}h</span>
         </div>
 
         <div className="flex items-center justify-between text-xs">
@@ -1052,31 +1124,11 @@ function PropertiesSidebar({ task, isAdmin, companyId }: { task: any; isAdmin: b
         </div>
       </div>
 
-      {/* Sprint */}
-      {task.sprint && (
-        <div className="rounded-xl border border-gray-100 bg-white p-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">Sprint</p>
-          <Link
-            href={`/projects/${task.sprint.projectId}/sprints/${task.sprint.id}`}
-            className="text-sm font-medium text-gray-900 hover:text-gray-600 hover:underline"
-          >
-            {task.sprint.name}
-          </Link>
-          {task.sprint.goal && (
-            <p className="text-xs text-gray-500 mt-1 leading-relaxed">{task.sprint.goal}</p>
-          )}
-          {task.sprint.startDate && (
-            <p className="text-xs text-gray-400 mt-1">
-              {formatDate(task.sprint.startDate)} → {formatDate(task.sprint.endDate)}
-            </p>
-          )}
-        </div>
-      )}
-
       {/* Timestamps */}
       <div className="space-y-1 px-1">
         <p className="text-xs text-gray-400">Created {formatDateTime(task.createdAt)}</p>
         <p className="text-xs text-gray-400">Updated {formatDateTime(task.updatedAt)}</p>
+        <p className="text-xs text-gray-400">Last activity {timeAgo(task.updatedAt)}</p>
       </div>
     </div>
   );
@@ -1087,7 +1139,7 @@ function PropertiesSidebar({ task, isAdmin, companyId }: { task: any; isAdmin: b
 export default function TaskWorkspacePage() {
   const { taskId } = useParams<{ taskId: string }>();
   const { user } = useAuthStore();
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = user?.role === 'owner';
   const companyId = user?.companyId ?? '';
 
   const { data: task, isLoading } = useTaskDetail(taskId);
@@ -1097,8 +1149,8 @@ export default function TaskWorkspacePage() {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-gray-500">
         <p className="text-sm">Task not found</p>
-        <Link href="/projects" className="mt-2 text-sm font-medium text-gray-700 hover:underline">
-          Back to projects
+        <Link href="/tasks" className="mt-2 text-sm font-medium text-gray-700 hover:underline">
+          Back to tasks
         </Link>
       </div>
     );
@@ -1109,19 +1161,6 @@ export default function TaskWorkspacePage() {
       <Header
         title={
           <div className="flex items-center gap-1.5 text-sm min-w-0">
-            {task.sprint && (
-              <>
-                <Link href={`/projects/${task.sprint.projectId}`} className="shrink-0 text-gray-400 hover:text-gray-700">Project</Link>
-                <ChevronRight className="h-3.5 w-3.5 text-gray-300 shrink-0" />
-                <Link
-                  href={`/projects/${task.sprint.projectId}/sprints/${task.sprint.id}`}
-                  className="max-w-[120px] truncate text-gray-400 hover:text-gray-700"
-                >
-                  {task.sprint.name}
-                </Link>
-                <ChevronRight className="h-3.5 w-3.5 text-gray-300 shrink-0" />
-              </>
-            )}
             <span className="font-semibold text-gray-900 truncate">{task.name}</span>
           </div>
         }
@@ -1130,35 +1169,48 @@ export default function TaskWorkspacePage() {
       <main className="flex-1 overflow-y-auto bg-gray-50 p-6">
         <div className="mx-auto max-w-6xl">
 
-          {/* Task title + description */}
-          <div className="mb-5 rounded-xl border border-gray-100 bg-white p-6">
+          {/* Task header */}
+          <div className="mb-5 rounded-xl border border-gray-300 bg-white p-6">
+            {task.parentTask && (
+              <Link
+                href={`/tasks/${task.parentTask.id}`}
+                className="mb-3 inline-flex items-center gap-1.5 rounded-md bg-gray-50 px-2 py-1 text-xs font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800 transition-colors"
+              >
+                <ListTree className="h-3.5 w-3.5" />
+                Subtask of <span className="font-mono">{task.parentTask.displayId}</span> {task.parentTask.name}
+              </Link>
+            )}
             <div className="flex items-start gap-3 flex-wrap mb-3">
+              <span className="font-mono text-xs font-semibold text-gray-400">{task.displayId}</span>
               <TaskStatusBadge status={task.status} />
               <PriorityBadge priority={task.priority} />
+              {task.subTaskCount > 0 && (
+                <span className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-0.5 text-xs font-medium text-gray-500">
+                  <ListTree className="h-3 w-3" /> {task.subTaskCount} subtask{task.subTaskCount !== 1 ? 's' : ''}
+                </span>
+              )}
             </div>
             <h1 className="text-2xl font-semibold tracking-tight text-gray-950 leading-tight">{task.name}</h1>
-            {task.description && (
-              <p className="mt-3 text-sm text-gray-600 leading-relaxed whitespace-pre-wrap">{task.description}</p>
-            )}
             <div className="mt-4 flex items-center gap-4 flex-wrap text-xs text-gray-400">
               {task.owner && (
                 <div className="flex items-center gap-1.5">
+                  <span className="text-gray-300">Owner</span>
                   <Avatar name={task.owner.fullName} size="xs" />
                   <span>{task.owner.fullName}</span>
-                </div>
-              )}
-              {task.plannedDueDate && (
-                <div className="flex items-center gap-1.5">
-                  <Calendar className="h-3.5 w-3.5" />
-                  <span className={task.status !== 'done' && new Date(task.plannedDueDate) < new Date() ? 'text-red-500 font-medium' : ''}>
-                    Due {formatDate(task.plannedDueDate)}
-                  </span>
                 </div>
               )}
               {task.assignees.length > 0 && (
                 <div className="flex items-center gap-1.5">
                   <User className="h-3.5 w-3.5" />
                   <span>{task.assignees.map((a: any) => a.fullName).join(', ')}</span>
+                </div>
+              )}
+              {task.plannedDueDate && (
+                <div className="flex items-center gap-1.5">
+                  <Calendar className="h-3.5 w-3.5" />
+                  <span className={task.status !== 'completed' && new Date(task.plannedDueDate) < new Date() ? 'text-red-500 font-medium' : ''}>
+                    Due {formatDate(task.plannedDueDate)}
+                  </span>
                 </div>
               )}
             </div>
@@ -1169,7 +1221,9 @@ export default function TaskWorkspacePage() {
 
             {/* Left: main sections */}
             <div className="space-y-4">
-              <StepsSection taskId={taskId} />
+              <DescriptionSection description={task.description} />
+              <HierarchyTreeSection taskId={taskId} />
+              <SubtasksSection taskId={taskId} companyId={companyId} isAdmin={isAdmin} />
               <EffortSection task={task} isAdmin={isAdmin} />
               <AttachmentsSection taskId={taskId} />
               <NotesSection taskId={taskId} />

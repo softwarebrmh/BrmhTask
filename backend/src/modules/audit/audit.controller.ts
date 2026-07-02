@@ -22,7 +22,7 @@ export class AuditController {
 
   @Get('companies/:companyId/audit')
   @UseGuards(RolesGuard, CompanyOwnerGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.OWNER)
   findByCompany(@Param('companyId') companyId: string, @Query() query: AuditQueryDto) {
     return this.auditService.findByCompany(companyId, query);
   }

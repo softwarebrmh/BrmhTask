@@ -3,20 +3,20 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, FolderOpen, Users, Settings,
-  CheckSquare, Bell, LogOut, Building2,
+  LayoutDashboard, Users, Settings,
+  CheckSquare, Bell, LogOut, Building2, ListTodo,
 } from 'lucide-react';
 import { useAuthStore } from '@/lib/stores/auth.store';
 import { Avatar } from '@/components/ui/avatar';
 import { cn } from '@/lib/utils';
 
-const adminNav = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/projects',  label: 'Projects',  icon: FolderOpen },
-  { href: '/staff',     label: 'Team',      icon: Users },
+const ownerNav = [
+  { href: '/dashboard', label: 'Dashboard',   icon: LayoutDashboard },
+  { href: '/tasks',     label: 'Tasks',       icon: ListTodo },
+  { href: '/staff',     label: 'Employees',   icon: Users },
 ];
 
-const staffNav = [
+const employeeNav = [
   { href: '/dashboard',     label: 'Dashboard',     icon: LayoutDashboard },
   { href: '/my-tasks',      label: 'My Tasks',      icon: CheckSquare },
   { href: '/notifications', label: 'Notifications', icon: Bell },
@@ -25,8 +25,8 @@ const staffNav = [
 export function Sidebar() {
   const pathname = usePathname();
   const { user, clearAuth } = useAuthStore();
-  const isAdmin = user?.role === 'admin';
-  const navItems = isAdmin ? adminNav : staffNav;
+  const isOwner = user?.role === 'owner';
+  const navItems = isOwner ? ownerNav : employeeNav;
 
   const isActive = (href: string) =>
     href === '/dashboard' ? pathname === href : pathname.startsWith(href);
@@ -84,7 +84,7 @@ export function Sidebar() {
             <Avatar name={user.fullName} src={user.avatarUrl} size="sm" />
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-semibold text-gray-900">{user.fullName}</p>
-              <p className="truncate text-xs text-gray-400 capitalize">{user.role === 'staff' ? 'Employee' : 'Admin'}</p>
+              <p className="truncate text-xs text-gray-400 capitalize">{user.role === 'employee' ? 'Employee' : 'Owner'}</p>
             </div>
           </div>
         )}

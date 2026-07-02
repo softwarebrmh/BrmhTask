@@ -1,6 +1,6 @@
 import { IsOptional, IsEnum, IsString, IsInt, Min, Max } from 'class-validator';
 import { Type } from 'class-transformer';
-import { StaffStatus } from '@prisma/client';
+import { MemberStatus } from '@prisma/client';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class StaffQueryDto {
@@ -10,9 +10,9 @@ export class StaffQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsInt() @Min(1) @Max(100) @Type(() => Number)
   limit?: number = 20;
 
-  @ApiPropertyOptional({ enum: StaffStatus })
-  @IsOptional() @IsEnum(StaffStatus)
-  status?: StaffStatus;
+  @ApiPropertyOptional({ enum: MemberStatus })
+  @IsOptional() @IsEnum(MemberStatus)
+  status?: MemberStatus;
 
   @ApiPropertyOptional()
   @IsOptional() @IsString()

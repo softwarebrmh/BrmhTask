@@ -1,10 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, RefreshCw, Ban, UserCheck } from 'lucide-react';
+import { Plus, RefreshCw, Ban, UserCheck, ListTodo } from 'lucide-react';
 import { Header } from '@/components/layout/header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -77,6 +78,7 @@ function StaffPageContent() {
                 <tr>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Member</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Active Tasks</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Joined</th>
                   <th className="px-4 py-3" />
                 </tr>
@@ -84,7 +86,7 @@ function StaffPageContent() {
               <tbody className="divide-y divide-gray-100">
                 {staff.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-gray-400">No employees found</td>
+                    <td colSpan={5} className="px-4 py-8 text-center text-gray-400">No employees found</td>
                   </tr>
                 ) : (
                   staff.map((s) => (
@@ -99,6 +101,19 @@ function StaffPageContent() {
                         </div>
                       </td>
                       <td className="px-4 py-3"><StaffStatusBadge status={s.status} /></td>
+                      <td className="px-4 py-3">
+                        {s.user ? (
+                          <Link
+                            href={`/tasks?assigneeId=${s.user.id}`}
+                            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                          >
+                            <ListTodo className="h-3.5 w-3.5 text-gray-400" />
+                            {s.activeTaskCount}
+                          </Link>
+                        ) : (
+                          <span className="text-sm text-gray-300">—</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-gray-500">{formatDate(s.joinedAt)}</td>
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-1 justify-end">
@@ -159,7 +174,7 @@ function StaffPageContent() {
 
 export default function StaffPage() {
   return (
-    <ProtectedRoute allowedRoles={['admin']}>
+    <ProtectedRoute allowedRoles={['owner']}>
       <StaffPageContent />
     </ProtectedRoute>
   );

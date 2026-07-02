@@ -1,8 +1,8 @@
 import { apiClient } from './client';
 import type {
-  AuthResponse, Company, StaffMember, Project, Sprint, Task, TaskDetail,
-  TaskStep, AttachmentItem, Note, CommentItem, AdminDashboard, StaffDashboard,
-  PaginatedResponse, SingleResponse, TaskStatus, TaskPriority,
+  AuthResponse, Company, StaffMember, Task, TaskDetail,
+  AttachmentItem, Note, CommentItem, OwnerDashboard, EmployeeDashboard,
+  PaginatedResponse, SingleResponse, TaskStatus, TaskPriority, SubtaskItem, TaskTreeNode,
 } from '@/types';
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -45,6 +45,10 @@ export const companyApi = {
     apiClient.get<SingleResponse<Company>>(`/companies/${id}`),
   update: (id: string, data: Partial<{ name: string; logoUrl: string; workingHoursStart: string; workingHoursEnd: string }>) =>
     apiClient.patch<SingleResponse<Company>>(`/companies/${id}`, data),
+  allTasks: (companyId: string, params?: { status?: string; priority?: string; search?: string; assigneeId?: string; page?: number; limit?: number }) =>
+    apiClient.get(`/companies/${companyId}/tasks`, { params }),
+  createTask: (companyId: string, data: { name: string; description?: string; priority?: string; assigneeIds?: string[]; startDate?: string; plannedDueDate?: string }) =>
+    apiClient.post(`/companies/${companyId}/tasks`, data),
 };
 
 // ─── Staff ────────────────────────────────────────────────────────────────────
@@ -64,60 +68,21 @@ export const staffApi = {
     apiClient.patch<SingleResponse<StaffMember>>(`/companies/${companyId}/staff/${staffId}/activate`),
 };
 
-// ─── Projects ─────────────────────────────────────────────────────────────────
-
-export const projectsApi = {
-  list: (companyId: string, params?: { page?: number; limit?: number; status?: string }) =>
-    apiClient.get<PaginatedResponse<Project>>(`/companies/${companyId}/projects`, { params }),
-  create: (companyId: string, data: { name: string; description?: string }) =>
-    apiClient.post<SingleResponse<Project>>(`/companies/${companyId}/projects`, data),
-  getById: (companyId: string, projectId: string) =>
-    apiClient.get<SingleResponse<Project>>(`/companies/${companyId}/projects/${projectId}`),
-  update: (companyId: string, projectId: string, data: Partial<{ name: string; description: string }>) =>
-    apiClient.patch<SingleResponse<Project>>(`/companies/${companyId}/projects/${projectId}`, data),
-  archive: (companyId: string, projectId: string) =>
-    apiClient.delete<SingleResponse<{ message: string }>>(`/companies/${companyId}/projects/${projectId}`),
-};
-
-// ─── Sprints ──────────────────────────────────────────────────────────────────
-
-export const sprintsApi = {
-  list: (projectId: string, params?: { page?: number; limit?: number; status?: string }) =>
-    apiClient.get<PaginatedResponse<Sprint>>(`/projects/${projectId}/sprints`, { params }),
-  create: (projectId: string, data: { name: string; goal?: string; startDate?: string; endDate?: string }) =>
-    apiClient.post<SingleResponse<Sprint>>(`/projects/${projectId}/sprints`, data),
-  getById: (projectId: string, sprintId: string) =>
-    apiClient.get<SingleResponse<Sprint>>(`/projects/${projectId}/sprints/${sprintId}`),
-  update: (projectId: string, sprintId: string, data: Partial<{ name: string; goal: string; startDate: string; endDate: string }>) =>
-    apiClient.patch<SingleResponse<Sprint>>(`/projects/${projectId}/sprints/${sprintId}`, data),
-  start: (projectId: string, sprintId: string) =>
-    apiClient.patch<SingleResponse<Sprint>>(`/projects/${projectId}/sprints/${sprintId}/start`),
-  end: (projectId: string, sprintId: string) =>
-    apiClient.patch<SingleResponse<Sprint>>(`/projects/${projectId}/sprints/${sprintId}/end`),
-};
-
 // ─── Tasks ────────────────────────────────────────────────────────────────────
 
 export const tasksApi = {
-  list: (sprintId: string, params?: {
-    page?: number; limit?: number; status?: TaskStatus;
-    priority?: TaskPriority; search?: string; parentTaskId?: string;
-  }) => apiClient.get<PaginatedResponse<Task>>(`/sprints/${sprintId}/tasks`, { params }),
-  create: (sprintId: string, data: {
-    name: string; description?: string; priority?: TaskPriority;
-    parentTaskId?: string; startDate?: string; plannedDueDate?: string;
-    plannedEffortPh?: number; estimatedEffortPh?: number; assigneeIds?: string[];
-  }) => apiClient.post<SingleResponse<Task>>(`/sprints/${sprintId}/tasks`, data),
   getById: (taskId: string) =>
     apiClient.get<SingleResponse<TaskDetail>>(`/tasks/${taskId}`),
   update: (taskId: string, data: Partial<{
     name: string; description: string; priority: TaskPriority;
-    plannedDueDate: string; plannedEffortPh: number;
+    plannedDueDate: string;
   }>) => apiClient.patch<SingleResponse<Task>>(`/tasks/${taskId}`, data),
   delete: (taskId: string) =>
     apiClient.delete<SingleResponse<any>>(`/tasks/${taskId}`),
   updateStatus: (taskId: string, status: TaskStatus) =>
     apiClient.patch<SingleResponse<Task>>(`/tasks/${taskId}/status`, { status }),
+  updatePriority: (taskId: string, priority: TaskPriority) =>
+    apiClient.patch<SingleResponse<Task>>(`/tasks/${taskId}/priority`, { priority }),
   updateEffort: (taskId: string, data: { actualEffortPh?: number; estimatedEffortPh?: number }) =>
     apiClient.patch<SingleResponse<Task>>(`/tasks/${taskId}/effort`, data),
   assign: (taskId: string, assigneeIds: string[]) =>
@@ -126,23 +91,17 @@ export const tasksApi = {
     apiClient.patch<SingleResponse<Task>>(`/tasks/${taskId}/unassign/${userId}`),
   getAssigneeHistory: (taskId: string) =>
     apiClient.get<SingleResponse<any[]>>(`/tasks/${taskId}/assignees`),
+  getTree: (taskId: string) =>
+    apiClient.get<SingleResponse<{ tree: TaskTreeNode; currentTaskId: string }>>(`/tasks/${taskId}/tree`),
 };
 
-// ─── Steps ────────────────────────────────────────────────────────────────────
+// ─── Subtasks ─────────────────────────────────────────────────────────────────
 
-export const stepsApi = {
+export const subtasksApi = {
   list: (taskId: string) =>
-    apiClient.get<SingleResponse<TaskStep[]>>(`/tasks/${taskId}/steps`),
-  create: (taskId: string, data: { title: string; order?: number }) =>
-    apiClient.post<SingleResponse<TaskStep>>(`/tasks/${taskId}/steps`, data),
-  reorder: (taskId: string, stepIds: string[]) =>
-    apiClient.patch<SingleResponse<TaskStep[]>>(`/tasks/${taskId}/steps/reorder`, { stepIds }),
-  check: (taskId: string, stepId: string) =>
-    apiClient.patch<SingleResponse<TaskStep>>(`/tasks/${taskId}/steps/${stepId}/check`),
-  uncheck: (taskId: string, stepId: string) =>
-    apiClient.patch<SingleResponse<TaskStep>>(`/tasks/${taskId}/steps/${stepId}/uncheck`),
-  delete: (taskId: string, stepId: string) =>
-    apiClient.delete<SingleResponse<any>>(`/tasks/${taskId}/steps/${stepId}`),
+    apiClient.get<SingleResponse<SubtaskItem[]>>(`/tasks/${taskId}/subtasks`),
+  create: (taskId: string, data: { name: string; priority?: TaskPriority; assigneeIds?: string[]; plannedDueDate?: string }) =>
+    apiClient.post<SingleResponse<Task>>(`/tasks/${taskId}/subtasks`, data),
 };
 
 // ─── Attachments ──────────────────────────────────────────────────────────────
@@ -199,33 +158,9 @@ export const commentsApi = {
 
 export const dashboardApi = {
   admin: (companyId: string) =>
-    apiClient.get<SingleResponse<AdminDashboard>>(`/dashboard/admin/${companyId}`),
+    apiClient.get<SingleResponse<OwnerDashboard>>(`/dashboard/admin/${companyId}`),
   staff: () =>
-    apiClient.get<SingleResponse<StaffDashboard>>('/dashboard/me'),
-  project: (projectId: string) =>
-    apiClient.get<SingleResponse<any>>(`/dashboard/projects/${projectId}`),
-};
-
-// ─── Project members ──────────────────────────────────────────────────────────
-
-export const projectMembersApi = {
-  list: (projectId: string, companyId: string) =>
-    apiClient.get<SingleResponse<any[]>>(`/companies/${companyId}/projects/${projectId}/members`),
-  add: (companyId: string, projectId: string, userId: string) =>
-    apiClient.post<SingleResponse<any>>(`/companies/${companyId}/projects/${projectId}/members`, { userId }),
-  remove: (companyId: string, projectId: string, userId: string) =>
-    apiClient.delete<SingleResponse<any>>(`/companies/${companyId}/projects/${projectId}/members/${userId}`),
-};
-
-// ─── Sprint members ───────────────────────────────────────────────────────────
-
-export const sprintMembersApi = {
-  list: (projectId: string, sprintId: string) =>
-    apiClient.get<SingleResponse<any[]>>(`/projects/${projectId}/sprints/${sprintId}/members`),
-  add: (projectId: string, sprintId: string, userId: string) =>
-    apiClient.post<SingleResponse<any>>(`/projects/${projectId}/sprints/${sprintId}/members`, { userId }),
-  remove: (projectId: string, sprintId: string, userId: string) =>
-    apiClient.delete<SingleResponse<any>>(`/projects/${projectId}/sprints/${sprintId}/members/${userId}`),
+    apiClient.get<SingleResponse<EmployeeDashboard>>('/dashboard/me'),
 };
 
 // ─── Audit ────────────────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@ import { JwtPayload } from '../../common/interfaces/jwt-payload.interface';
 @ApiTags('Staff')
 @ApiBearerAuth()
 @UseGuards(RolesGuard, CompanyOwnerGuard)
-@Roles(UserRole.ADMIN)
+@Roles(UserRole.OWNER)
 @Controller('companies/:companyId/staff')
 export class StaffController {
   constructor(private staffService: StaffService) {}

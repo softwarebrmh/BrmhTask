@@ -20,14 +20,14 @@ async function main() {
     return;
   }
 
-  // Admin user
+  // Owner user
   const adminHash = await bcrypt.hash(adminPassword, 12);
   const admin = await prisma.user.create({
     data: {
       email: adminEmail,
       passwordHash: adminHash,
       fullName: 'Demo Admin',
-      role: UserRole.admin,
+      role: UserRole.owner,
       isEmailVerified: true,
     },
   });
@@ -43,20 +43,20 @@ async function main() {
     },
   });
 
-  // Staff user
+  // Employee user
   const staffHash = await bcrypt.hash(staffPassword, 12);
   const staffUser = await prisma.user.create({
     data: {
       email: staffEmail,
       passwordHash: staffHash,
       fullName: 'Demo Staff',
-      role: UserRole.staff,
+      role: UserRole.employee,
       isEmailVerified: true,
     },
   });
 
-  // Link staff user to the company
-  await prisma.companyStaff.create({
+  // Link employee user to the company
+  await prisma.companyMember.create({
     data: {
       companyId: company.id,
       userId: staffUser.id,
@@ -67,38 +67,14 @@ async function main() {
     },
   });
 
-  // Demo project
-  const project = await prisma.project.create({
-    data: {
-      companyId: company.id,
-      name: 'Demo Project',
-      description: 'A sample project to explore the platform.',
-      createdBy: admin.id,
-    },
-  });
-
-  // Demo sprint
-  const sprint = await prisma.sprint.create({
-    data: {
-      projectId: project.id,
-      name: 'Sprint 1',
-      goal: 'Get the basics working.',
-      status: 'active',
-      startDate: new Date(),
-      endDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000), // +14 days
-      createdBy: admin.id,
-    },
-  });
-
-  // Demo task assigned to staff
+  // Demo task assigned to employee
   const task = await prisma.task.create({
     data: {
-      sprintId: sprint.id,
+      companyId: company.id,
       name: 'Set up the development environment',
       description: 'Install dependencies and run the app locally.',
       status: 'todo',
       priority: 'high',
-      plannedEffortPh: 4,
       estimatedEffortPh: 4,
       ownerId: admin.id,
       createdBy: admin.id,
@@ -114,8 +90,6 @@ async function main() {
   });
 
   console.log(`✓ Company   : ${company.name}`);
-  console.log(`✓ Project   : ${project.name}`);
-  console.log(`✓ Sprint    : ${sprint.name} (active)`);
   console.log(`✓ Task      : ${task.name}`);
   printCredentials(adminEmail, adminPassword, staffEmail, staffPassword);
   console.log('\nSeeding complete.');

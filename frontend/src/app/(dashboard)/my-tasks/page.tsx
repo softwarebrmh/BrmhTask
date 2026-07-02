@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { Header } from '@/components/layout/header';
 import { TaskStatusBadge, PriorityBadge } from '@/components/ui/badge';
-import { Avatar } from '@/components/ui/avatar';
+import { AvatarGroup } from '@/components/ui/avatar';
 import { useAuthStore } from '@/lib/stores/auth.store';
 import { usersApi } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
@@ -18,14 +18,14 @@ import type { TaskStatus, TaskPriority, Task } from '@/types';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
-type TabId = 'todo' | 'in_progress' | 'review' | 'done' | 'overdue';
+type TabId = 'todo' | 'in_progress' | 'review' | 'completed' | 'overdue';
 type ViewMode = 'list' | 'board' | 'calendar';
 
 const TABS: { id: TabId; label: string; icon: any; status?: TaskStatus }[] = [
   { id: 'todo',        label: 'Assigned',    icon: CheckSquare, status: 'todo' },
   { id: 'in_progress', label: 'In Progress', icon: Clock,       status: 'in_progress' },
   { id: 'review',      label: 'Review',      icon: Filter,      status: 'review' },
-  { id: 'done',        label: 'Completed',   icon: CheckSquare, status: 'done' },
+  { id: 'completed',        label: 'Completed',   icon: CheckSquare, status: 'completed' },
   { id: 'overdue',     label: 'Overdue',     icon: AlertCircle },
 ];
 
@@ -33,7 +33,7 @@ const BOARD_COLUMNS: { status: TaskStatus; label: string; color: string; dot: st
   { status: 'todo',        label: 'To Do',       color: 'bg-gray-50 border-gray-200',    dot: 'bg-gray-400' },
   { status: 'in_progress', label: 'In Progress', color: 'bg-blue-50 border-blue-200',    dot: 'bg-blue-500' },
   { status: 'review',      label: 'Review',      color: 'bg-violet-50 border-violet-200', dot: 'bg-violet-500' },
-  { status: 'done',        label: 'Done',        color: 'bg-emerald-50 border-emerald-200', dot: 'bg-emerald-500' },
+  { status: 'completed',        label: 'Done',        color: 'bg-emerald-50 border-emerald-200', dot: 'bg-emerald-500' },
 ];
 
 const PRIORITY_DOT: Record<TaskPriority, string> = {
@@ -51,7 +51,7 @@ function ListView({ tasks, activeTab, isLoading }: { tasks: Task[]; activeTab: T
     todo:        'No tasks assigned to you',
     in_progress: 'No tasks in progress',
     review:      'No tasks pending review',
-    done:        'No completed tasks yet',
+    completed:   'No completed tasks yet',
     overdue:     'No overdue tasks — great job!',
   };
 
@@ -71,7 +71,7 @@ function ListView({ tasks, activeTab, isLoading }: { tasks: Task[]; activeTab: T
             <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400">Task</th>
             <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 hidden md:table-cell">Status</th>
             <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 hidden sm:table-cell">Priority</th>
-            <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 hidden lg:table-cell">Assignees</th>
+            <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 hidden lg:table-cell">Assignee</th>
             <th className="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-400 hidden md:table-cell">Due Date</th>
             <th className="px-4 py-3" />
           </tr>
@@ -96,7 +96,7 @@ function ListView({ tasks, activeTab, isLoading }: { tasks: Task[]; activeTab: T
 }
 
 function ListRow({ task }: { task: Task }) {
-  const isOverdue = task.plannedDueDate && task.status !== 'done' && new Date(task.plannedDueDate) < new Date();
+  const isOverdue = task.plannedDueDate && task.status !== 'completed' && new Date(task.plannedDueDate) < new Date();
   return (
     <tr className="group hover:bg-gray-50 transition-colors">
       <td className="px-4 py-3">
@@ -111,16 +111,7 @@ function ListRow({ task }: { task: Task }) {
       <td className="px-4 py-3 hidden sm:table-cell"><PriorityBadge priority={task.priority} /></td>
       <td className="px-4 py-3 hidden lg:table-cell">
         {task.assignees.length > 0 ? (
-          <div className="flex -space-x-1">
-            {task.assignees.slice(0, 3).map((a) => (
-              <Avatar key={a.id} name={a.fullName} src={a.avatarUrl} size="xs" className="ring-2 ring-white" />
-            ))}
-            {task.assignees.length > 3 && (
-              <div className="h-5 w-5 rounded-full bg-gray-200 ring-2 ring-white flex items-center justify-center">
-                <span className="text-xs text-gray-600">+{task.assignees.length - 3}</span>
-              </div>
-            )}
-          </div>
+          <AvatarGroup users={task.assignees} max={3} />
         ) : <span className="text-xs text-gray-400">—</span>}
       </td>
       <td className="px-4 py-3 hidden md:table-cell">
@@ -178,7 +169,7 @@ function BoardView({ tasks, isLoading }: { tasks: Task[]; isLoading: boolean }) 
 }
 
 function BoardCard({ task }: { task: Task }) {
-  const isOverdue = task.plannedDueDate && task.status !== 'done' && new Date(task.plannedDueDate) < new Date();
+  const isOverdue = task.plannedDueDate && task.status !== 'completed' && new Date(task.plannedDueDate) < new Date();
   return (
     <Link
       href={`/tasks/${task.id}`}
@@ -201,23 +192,9 @@ function BoardCard({ task }: { task: Task }) {
           </div>
         ) : <div />}
         {task.assignees.length > 0 && (
-          <div className="flex -space-x-1">
-            {task.assignees.slice(0, 2).map((a) => (
-              <Avatar key={a.id} name={a.fullName} src={a.avatarUrl} size="xs" className="ring-1 ring-white" />
-            ))}
-          </div>
+          <AvatarGroup users={task.assignees} max={2} />
         )}
       </div>
-      {task.stepProgress.total > 0 && (
-        <div className="mt-2.5">
-          <div className="h-1 rounded-full bg-gray-100">
-            <div
-              className="h-1 rounded-full bg-gray-900 transition-all"
-              style={{ width: `${task.stepProgress.percentage}%` }}
-            />
-          </div>
-        </div>
-      )}
     </Link>
   );
 }
@@ -334,7 +311,7 @@ function CalendarView({ tasks, isLoading }: { tasks: Task[]; isLoading: boolean 
                     href={`/tasks/${t.id}`}
                     title={t.name}
                     className={`block truncate rounded px-1.5 py-0.5 text-xs font-medium transition-opacity hover:opacity-75 ${
-                      t.status === 'done'
+                      t.status === 'completed'
                         ? 'bg-emerald-50 text-emerald-700'
                         : isPast
                         ? 'bg-red-50 text-red-600'
@@ -428,7 +405,7 @@ export default function MyTasksPage() {
   const tasks = useMemo(() => {
     if (activeTab === 'overdue') {
       return allTasks.filter(
-        (t) => t.plannedDueDate && t.status !== 'done' && new Date(t.plannedDueDate) < new Date(),
+        (t) => t.plannedDueDate && t.status !== 'completed' && new Date(t.plannedDueDate) < new Date(),
       );
     }
     return allTasks;
@@ -458,7 +435,7 @@ export default function MyTasksPage() {
               {getGreeting()}, {user?.fullName?.split(' ')[0]}
             </p>
             <p className="text-sm text-gray-500 mt-0.5">
-              Here are all your tasks across sprints and projects.
+              Here are all of your assigned tasks.
             </p>
           </div>
 

@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import type { TaskStatus, TaskPriority, SprintStatus, StaffStatus } from '@/types';
+import type { TaskStatus, TaskPriority, MemberStatus } from '@/types';
 
 type BadgeVariant = 'default' | 'success' | 'warning' | 'danger' | 'info' | 'purple' | 'gray';
 
@@ -29,10 +29,10 @@ export function Badge({ children, variant = 'default', className }: BadgeProps) 
 
 export function TaskStatusBadge({ status }: { status: TaskStatus }) {
   const map: Record<TaskStatus, { label: string; variant: BadgeVariant }> = {
-    todo:        { label: 'To Do',       variant: 'gray' },
+    todo:        { label: 'Todo',        variant: 'gray' },
     in_progress: { label: 'In Progress', variant: 'info' },
     review:      { label: 'Review',      variant: 'purple' },
-    done:        { label: 'Done',        variant: 'success' },
+    completed:   { label: 'Completed',   variant: 'success' },
   };
   const { label, variant } = map[status];
   return <Badge variant={variant}>{label}</Badge>;
@@ -49,18 +49,8 @@ export function PriorityBadge({ priority }: { priority: TaskPriority }) {
   return <Badge variant={variant}>{label}</Badge>;
 }
 
-export function SprintStatusBadge({ status }: { status: SprintStatus }) {
-  const map: Record<SprintStatus, { label: string; variant: BadgeVariant }> = {
-    draft:     { label: 'Draft',     variant: 'gray' },
-    active:    { label: 'Active',    variant: 'success' },
-    completed: { label: 'Completed', variant: 'info' },
-  };
-  const { label, variant } = map[status];
-  return <Badge variant={variant}>{label}</Badge>;
-}
-
-export function StaffStatusBadge({ status }: { status: StaffStatus }) {
-  const map: Record<StaffStatus, { label: string; variant: BadgeVariant }> = {
+export function StaffStatusBadge({ status }: { status: MemberStatus }) {
+  const map: Record<MemberStatus, { label: string; variant: BadgeVariant }> = {
     invited:   { label: 'Invited',   variant: 'warning' },
     active:    { label: 'Active',    variant: 'success' },
     suspended: { label: 'Suspended', variant: 'danger' },

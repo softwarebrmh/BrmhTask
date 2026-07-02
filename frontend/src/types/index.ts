@@ -1,10 +1,8 @@
 // ─── Enums ────────────────────────────────────────────────────────────────────
 
-export type UserRole = 'admin' | 'staff';
-export type StaffStatus = 'invited' | 'active' | 'suspended';
-export type ProjectStatus = 'active' | 'archived';
-export type SprintStatus = 'draft' | 'active' | 'completed';
-export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'done';
+export type UserRole = 'owner' | 'employee';
+export type MemberStatus = 'invited' | 'active' | 'suspended';
+export type TaskStatus = 'todo' | 'in_progress' | 'review' | 'completed';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
 
 // ─── Shared ───────────────────────────────────────────────────────────────────
@@ -74,52 +72,21 @@ export interface StaffMember {
   designation?: string | null;
   user?: UserSummary | null;
   companyId: string;
-  status: StaffStatus;
+  status: MemberStatus;
   joinedAt?: string | null;
   lastActiveAt?: string | null;
   createdAt: string;
-}
-
-// ─── Project ──────────────────────────────────────────────────────────────────
-
-export interface Project {
-  id: string;
-  name: string;
-  description?: string | null;
-  status: ProjectStatus;
-  companyId: string;
-  createdBy: UserSummary;
-  sprintCount: number;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// ─── Sprint ───────────────────────────────────────────────────────────────────
-
-export interface Sprint {
-  id: string;
-  projectId: string;
-  name: string;
-  goal?: string | null;
-  status: SprintStatus;
-  startDate?: string | null;
-  endDate?: string | null;
-  taskCount: number;
-  createdAt: string;
+  activeTaskCount: number;
 }
 
 // ─── Task ─────────────────────────────────────────────────────────────────────
 
-export interface StepProgress {
-  total: number;
-  completed: number;
-  percentage: number;
-}
-
 export interface Task {
   id: string;
-  sprintId: string;
+  displayId: string;
+  companyId: string;
   parentTaskId?: string | null;
+  parentTask?: { id: string; displayId: string; name: string } | null;
   name: string;
   description?: string | null;
   status: TaskStatus;
@@ -127,11 +94,9 @@ export interface Task {
   startDate?: string | null;
   plannedDueDate?: string | null;
   actualDueDate?: string | null;
-  plannedEffortPh: number;
   estimatedEffortPh: number;
   actualEffortPh: number;
   slippagePh: number;
-  stepProgress: StepProgress;
   owner?: UserSummary | null;
   assignees: UserSummary[];
   subTaskCount: number;
@@ -139,33 +104,30 @@ export interface Task {
   updatedAt: string;
 }
 
+export interface SubtaskItem {
+  id: string;
+  displayId: string;
+  name: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  assignees: UserSummary[];
+  plannedDueDate?: string | null;
+}
+
 export interface TaskDetail extends Task {
-  sprint: {
-    id: string;
-    projectId: string;
-    name: string;
-    goal?: string | null;
-    status: SprintStatus;
-    startDate?: string | null;
-    endDate?: string | null;
-    taskCount: number;
-  } | null;
-  steps: TaskStep[];
   recentComments: CommentItem[];
   recentAttachments: AttachmentItem[];
 }
 
-// ─── Step ─────────────────────────────────────────────────────────────────────
-
-export interface TaskStep {
+export interface TaskTreeNode {
   id: string;
-  taskId: string;
-  title: string;
-  isChecked: boolean;
-  order: number;
-  checkedAt?: string | null;
-  checkedBy?: UserSummary | null;
-  createdAt: string;
+  displayId: string;
+  name: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  plannedDueDate?: string | null;
+  assignees: UserSummary[];
+  children: TaskTreeNode[];
 }
 
 // ─── Attachment ───────────────────────────────────────────────────────────────
@@ -228,32 +190,30 @@ export interface TaskStatusBreakdown {
   review: number;
   done: number;
   overdue?: number;
+  unassigned?: number;
   total?: number;
 }
 
-export interface AdminDashboard {
+export interface DashboardDeadlineTask {
+  id: string;
+  name: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  plannedDueDate?: string | null;
+  assignees: UserSummary[];
+}
+
+export interface WorkloadItem {
+  user: UserSummary;
+  activeTaskCount: number;
+}
+
+export interface OwnerDashboard {
   staff: { total: number; active: number; pending: number };
-  projects: { total: number; active: number };
-  sprints: { active: number };
   tasks: TaskStatusBreakdown;
+  upcomingDeadlines: DashboardDeadlineTask[];
+  workload: WorkloadItem[];
   recentActivity: ActivityItem[];
-}
-
-export interface DashboardProject {
-  id: string;
-  name: string;
-  status: ProjectStatus;
-}
-
-export interface DashboardSprint {
-  id: string;
-  name: string;
-  goal?: string | null;
-  status: SprintStatus;
-  startDate?: string | null;
-  endDate?: string | null;
-  taskCount: number;
-  project?: { id: string; name: string } | null;
 }
 
 export interface DashboardTask {
@@ -262,14 +222,11 @@ export interface DashboardTask {
   status: TaskStatus;
   priority: TaskPriority;
   plannedDueDate?: string | null;
-  sprint?: { id: string; name: string; projectId: string } | null;
 }
 
-export interface StaffDashboard {
+export interface EmployeeDashboard {
   myTasks: TaskStatusBreakdown;
   upcomingTasks: DashboardTask[];
-  activeSprints: DashboardSprint[];
-  myProjects: DashboardProject[];
   recentActivity: ActivityItem[];
 }
 

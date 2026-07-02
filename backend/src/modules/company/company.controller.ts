@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CompanyService } from './company.service';
 import { CreateCompanyDto } from './dto/create-company.dto';
@@ -18,7 +18,7 @@ export class CompanyController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.OWNER)
   create(@Body() dto: CreateCompanyDto, @CurrentUser() user: JwtPayload) {
     return this.companyService.create(dto, user);
   }
@@ -28,9 +28,30 @@ export class CompanyController {
     return this.companyService.findOne(companyId, user);
   }
 
+  @Post(':companyId/tasks')
+  createTask(
+    @Param('companyId') companyId: string,
+    @Body() dto: { name: string; description?: string; priority?: string; assigneeIds?: string[]; startDate?: string; plannedDueDate?: string },
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.companyService.createTask(companyId, dto, user);
+  }
+
+  @Get(':companyId/tasks')
+  getAllTasks(
+    @Param('companyId') companyId: string,
+    @Query() query: { status?: string; priority?: string; search?: string; assigneeId?: string; page?: string; limit?: string },
+  ) {
+    return this.companyService.getAllTasks(companyId, {
+      ...query,
+      page: query.page ? parseInt(query.page) : undefined,
+      limit: query.limit ? parseInt(query.limit) : undefined,
+    });
+  }
+
   @Patch(':companyId')
   @UseGuards(RolesGuard, CompanyOwnerGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.OWNER)
   update(
     @Param('companyId') companyId: string,
     @Body() dto: UpdateCompanyDto,

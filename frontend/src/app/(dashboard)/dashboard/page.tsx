@@ -3,17 +3,17 @@
 import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import {
-  CheckSquare, Clock, Users, FolderOpen, TrendingUp,
-  AlertCircle, ArrowRight, Activity, Calendar,
+  Clock, Users, TrendingUp, AlertTriangle, UserX,
+  ArrowRight, Activity, Calendar, Flame,
 } from 'lucide-react';
 import { Header } from '@/components/layout/header';
 import { PageSpinner } from '@/components/ui/spinner';
-import { TaskStatusBadge, SprintStatusBadge } from '@/components/ui/badge';
+import { TaskStatusBadge, PriorityBadge } from '@/components/ui/badge';
 import { Avatar, AvatarGroup } from '@/components/ui/avatar';
 import { useAuthStore } from '@/lib/stores/auth.store';
 import { dashboardApi } from '@/lib/api';
 import { timeAgo, formatDate } from '@/lib/utils';
-import type { AdminDashboard, StaffDashboard } from '@/types';
+import type { OwnerDashboard, EmployeeDashboard } from '@/types';
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
@@ -114,24 +114,27 @@ function ActivityFeed({ items }: { items: any[] }) {
 
 // ─── Admin dashboard ──────────────────────────────────────────────────────────
 
-function AdminDashboardView({ companyId }: { companyId: string }) {
+function OwnerDashboardView({ companyId }: { companyId: string }) {
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard', 'admin', companyId],
-    queryFn: () => dashboardApi.admin(companyId).then((r) => r.data.data as AdminDashboard),
+    queryFn: () => dashboardApi.admin(companyId).then((r) => r.data.data as OwnerDashboard),
     enabled: !!companyId,
   });
 
   if (isLoading) return <PageSpinner />;
   if (!data) return null;
 
+  const deadlines = data.upcomingDeadlines ?? [];
+  const workload = data.workload ?? [];
+
   return (
     <div className="space-y-6">
       {/* Stats row */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard label="Active Employees" value={data.staff.active}   sub={`${data.staff.pending} pending invite`} icon={Users} />
-        <StatCard label="Active Projects" value={data.projects.active} icon={FolderOpen} />
-        <StatCard label="Active Sprints"  value={data.sprints.active}  icon={TrendingUp} />
-        <StatCard label="Tasks Due Soon"  value={data.tasks.todo + data.tasks.inProgress} sub="todo + in progress" icon={Clock} accent={data.tasks.todo + data.tasks.inProgress > 20} />
+        <StatCard label="Total Tasks" value={data.tasks.total ?? 0} icon={TrendingUp} />
+        <StatCard label="Overdue" value={data.tasks.overdue ?? 0} icon={AlertTriangle} accent={(data.tasks.overdue ?? 0) > 0} />
+        <StatCard label="Unassigned" value={data.tasks.unassigned ?? 0} icon={UserX} accent={(data.tasks.unassigned ?? 0) > 0} />
       </div>
 
       {/* Task status + Activity */}
@@ -149,6 +152,69 @@ function AdminDashboardView({ companyId }: { companyId: string }) {
           <ActivityFeed items={data.recentActivity} />
         </div>
       </div>
+
+      {/* Upcoming deadlines + Team workload */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="rounded-xl border border-gray-100 bg-white p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-gray-400" />
+              Upcoming Deadlines
+            </h3>
+            <Link href="/tasks" className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
+              View all <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+          {deadlines.length === 0 ? (
+            <p className="text-sm text-gray-400 py-4 text-center">Nothing due soon</p>
+          ) : (
+            <ul className="divide-y divide-gray-50">
+              {deadlines.map((task) => (
+                <li key={task.id} className="py-2.5">
+                  <Link href={`/tasks/${task.id}`} className="flex items-center justify-between gap-3 hover:opacity-75 transition-opacity">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-gray-900">{task.name}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {task.plannedDueDate ? `Due ${formatDate(task.plannedDueDate)}` : 'No due date'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <PriorityBadge priority={task.priority} />
+                      {task.assignees.length > 0 && <AvatarGroup users={task.assignees} max={2} />}
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-gray-100 bg-white p-5">
+          <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-4">
+            <Flame className="h-4 w-4 text-gray-400" />
+            Team Workload
+          </h3>
+          {workload.length === 0 ? (
+            <p className="text-sm text-gray-400 py-4 text-center">No active assignments yet</p>
+          ) : (
+            <ul className="space-y-3">
+              {workload.map(({ user, activeTaskCount }) => {
+                const max = workload[0].activeTaskCount || 1;
+                return (
+                  <li key={user.id} className="flex items-center gap-3">
+                    <Avatar name={user.fullName} src={user.avatarUrl} size="xs" />
+                    <span className="min-w-0 flex-1 truncate text-sm text-gray-700">{user.fullName}</span>
+                    <div className="h-1.5 w-20 rounded-full bg-gray-100 overflow-hidden shrink-0">
+                      <div className="h-full rounded-full bg-gray-900" style={{ width: `${(activeTaskCount / max) * 100}%` }} />
+                    </div>
+                    <span className="w-5 shrink-0 text-right text-xs font-semibold text-gray-900">{activeTaskCount}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -158,7 +224,7 @@ function AdminDashboardView({ companyId }: { companyId: string }) {
 function EmployeeDashboardView() {
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard', 'staff'],
-    queryFn: () => dashboardApi.staff().then((r) => r.data.data as StaffDashboard),
+    queryFn: () => dashboardApi.staff().then((r) => r.data.data as EmployeeDashboard),
   });
 
   if (isLoading) return <PageSpinner />;
@@ -185,95 +251,37 @@ function EmployeeDashboardView() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {/* Upcoming tasks */}
-        <div className="rounded-xl border border-gray-100 bg-white p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-gray-400" />
-              My Tasks
-            </h3>
-            <Link href="/my-tasks" className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
-              View all <ArrowRight className="h-3 w-3" />
-            </Link>
-          </div>
-          {upcoming.length === 0 ? (
-            <p className="text-sm text-gray-400 py-4 text-center">No tasks assigned yet</p>
-          ) : (
-            <ul className="divide-y divide-gray-50">
-              {upcoming.slice(0, 6).map((task) => (
-                <li key={task.id} className="py-2.5">
-                  <Link href={`/tasks/${task.id}`} className="flex items-center justify-between gap-4 hover:opacity-75 transition-opacity">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-gray-900">{task.name}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {task.plannedDueDate ? `Due ${formatDate(task.plannedDueDate)}` : 'No due date'}
-                      </p>
-                    </div>
-                    <TaskStatusBadge status={task.status} />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* Active sprints I'm part of */}
-        <div className="rounded-xl border border-gray-100 bg-white p-5">
-          <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-4">
-            <TrendingUp className="h-4 w-4 text-gray-400" />
-            My Sprints
+      {/* Upcoming tasks */}
+      <div className="rounded-xl border border-gray-100 bg-white p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+            <Calendar className="h-4 w-4 text-gray-400" />
+            My Tasks
           </h3>
-          {data.activeSprints.length === 0 ? (
-            <p className="text-sm text-gray-400 py-4 text-center">Not assigned to any active sprint</p>
-          ) : (
-            <ul className="divide-y divide-gray-50">
-              {data.activeSprints.map((sprint) => (
-                <li key={sprint.id} className="py-3">
-                  <Link
-                    href={sprint.project ? `/projects/${sprint.project.id}/sprints/${sprint.id}` : '#'}
-                    className="flex items-center justify-between gap-3 hover:opacity-75 transition-opacity"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-gray-900">{sprint.name}</p>
-                      {sprint.project && (
-                        <p className="text-xs text-gray-400 mt-0.5">{sprint.project.name}</p>
-                      )}
-                      {sprint.goal && (
-                        <p className="truncate text-xs text-gray-400 mt-0.5">{sprint.goal}</p>
-                      )}
-                    </div>
-                    <SprintStatusBadge status={sprint.status} />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
+          <Link href="/my-tasks" className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
+            View all <ArrowRight className="h-3 w-3" />
+          </Link>
         </div>
-      </div>
-
-      {/* My projects */}
-      {data.myProjects && data.myProjects.length > 0 && (
-        <div className="rounded-xl border border-gray-100 bg-white p-5">
-          <h3 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-4">
-            <FolderOpen className="h-4 w-4 text-gray-400" />
-            My Projects
-          </h3>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {data.myProjects.map((project) => (
-              <Link
-                key={project.id}
-                href={`/projects/${project.id}`}
-                className="flex items-center gap-2.5 rounded-lg border border-gray-100 px-3 py-2.5 hover:bg-gray-50 transition-colors"
-              >
-                <span className={`h-2 w-2 rounded-full shrink-0 ${project.status === 'active' ? 'bg-emerald-500' : 'bg-gray-300'}`} />
-                <p className="truncate text-sm font-medium text-gray-800">{project.name}</p>
-                <ArrowRight className="h-3.5 w-3.5 text-gray-300 ml-auto shrink-0" />
-              </Link>
+        {upcoming.length === 0 ? (
+          <p className="text-sm text-gray-400 py-4 text-center">No tasks assigned yet</p>
+        ) : (
+          <ul className="divide-y divide-gray-50">
+            {upcoming.slice(0, 6).map((task) => (
+              <li key={task.id} className="py-2.5">
+                <Link href={`/tasks/${task.id}`} className="flex items-center justify-between gap-4 hover:opacity-75 transition-opacity">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-gray-900">{task.name}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {task.plannedDueDate ? `Due ${formatDate(task.plannedDueDate)}` : 'No due date'}
+                    </p>
+                  </div>
+                  <TaskStatusBadge status={task.status} />
+                </Link>
+              </li>
             ))}
-          </div>
-        </div>
-      )}
+          </ul>
+        )}
+      </div>
 
       {/* Recent activity */}
       <div className="rounded-xl border border-gray-100 bg-white p-5">
@@ -291,15 +299,15 @@ function EmployeeDashboardView() {
 
 export default function DashboardPage() {
   const { user } = useAuthStore();
-  const isAdmin = user?.role === 'admin';
+  const isOwner = user?.role === 'owner';
 
   return (
     <>
       <Header title="Dashboard" />
       <main className="flex-1 overflow-y-auto bg-gray-50 p-6">
         <div className="mx-auto max-w-6xl">
-          {isAdmin
-            ? <AdminDashboardView companyId={user?.companyId ?? ''} />
+          {isOwner
+            ? <OwnerDashboardView companyId={user?.companyId ?? ''} />
             : <EmployeeDashboardView />
           }
         </div>

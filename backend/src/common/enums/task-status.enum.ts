@@ -2,12 +2,12 @@ export enum TaskStatus {
   TODO = 'todo',
   IN_PROGRESS = 'in_progress',
   REVIEW = 'review',
-  DONE = 'done',
+  COMPLETED = 'completed',
 }
 
 export const VALID_TASK_TRANSITIONS: Record<TaskStatus, TaskStatus[]> = {
   [TaskStatus.TODO]:        [TaskStatus.IN_PROGRESS],
-  [TaskStatus.IN_PROGRESS]: [TaskStatus.REVIEW],
-  [TaskStatus.REVIEW]:      [TaskStatus.DONE, TaskStatus.IN_PROGRESS],
-  [TaskStatus.DONE]:        [TaskStatus.REVIEW],
+  [TaskStatus.IN_PROGRESS]: [TaskStatus.REVIEW, TaskStatus.TODO],
+  [TaskStatus.REVIEW]:      [TaskStatus.COMPLETED, TaskStatus.IN_PROGRESS],
+  [TaskStatus.COMPLETED]:   [TaskStatus.REVIEW],
 };

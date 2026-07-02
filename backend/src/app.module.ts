@@ -12,10 +12,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { CompanyModule } from './modules/company/company.module';
 import { StaffModule } from './modules/staff/staff.module';
-import { ProjectsModule } from './modules/projects/projects.module';
-import { SprintsModule } from './modules/sprints/sprints.module';
 import { TasksModule } from './modules/tasks/tasks.module';
-import { StepsModule } from './modules/steps/steps.module';
 import { AttachmentsModule } from './modules/attachments/attachments.module';
 import { NotesModule } from './modules/notes/notes.module';
 import { CommentsModule } from './modules/comments/comments.module';
@@ -38,10 +35,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
     UsersModule,
     CompanyModule,
     StaffModule,
-    ProjectsModule,
-    SprintsModule,
     TasksModule,
-    StepsModule,
     AttachmentsModule,
     NotesModule,
     CommentsModule,

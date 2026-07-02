@@ -85,7 +85,7 @@ export class CommentsService {
     const comment = await this.prisma.comment.findFirst({ where: { id: commentId, taskId, deletedAt: null } });
     if (!comment) throw new NotFoundException('Comment not found');
 
-    if (user.role === UserRole.STAFF && comment.authorId !== user.sub) {
+    if (user.role === UserRole.EMPLOYEE && comment.authorId !== user.sub) {
       throw new ForbiddenException('You can only edit your own comments');
     }
 
@@ -122,7 +122,7 @@ export class CommentsService {
     const comment = await this.prisma.comment.findFirst({ where: { id: commentId, taskId, deletedAt: null } });
     if (!comment) throw new NotFoundException('Comment not found');
 
-    if (user.role === UserRole.STAFF && comment.authorId !== user.sub) {
+    if (user.role === UserRole.EMPLOYEE && comment.authorId !== user.sub) {
       throw new ForbiddenException('You can only delete your own comments');
     }
 
@@ -163,7 +163,7 @@ export class CommentsService {
     });
     if (!reply) throw new NotFoundException('Reply not found');
 
-    if (user.role === UserRole.STAFF && reply.authorId !== user.sub) {
+    if (user.role === UserRole.EMPLOYEE && reply.authorId !== user.sub) {
       throw new ForbiddenException('You can only delete your own replies');
     }
 
@@ -196,7 +196,7 @@ export class CommentsService {
     const results: Array<{ userId: string; fullName: string; email: string }> = [];
 
     for (const userId of userIds) {
-      const staffOrOwner = await this.prisma.companyStaff.findFirst({
+      const staffOrOwner = await this.prisma.companyMember.findFirst({
         where: { userId, companyId, status: 'active', deletedAt: null },
         include: { user: { select: { id: true, fullName: true, email: true } } },
       });

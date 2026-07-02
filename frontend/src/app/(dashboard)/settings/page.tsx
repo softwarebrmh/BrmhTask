@@ -112,14 +112,14 @@ function ProfileSettings() {
 
 export default function SettingsPage() {
   const { user } = useAuthStore();
-  const isAdmin = user?.role === 'admin';
+  const isOwner = user?.role === 'owner';
 
   return (
     <>
       <Header title="Settings" />
       <main className="flex-1 overflow-y-auto p-6">
         <div className="max-w-2xl mx-auto space-y-6">
-          {isAdmin && user?.companyId && <CompanySettings companyId={user.companyId} />}
+          {isOwner && user?.companyId && <CompanySettings companyId={user.companyId} />}
           <ProfileSettings />
         </div>
       </main>

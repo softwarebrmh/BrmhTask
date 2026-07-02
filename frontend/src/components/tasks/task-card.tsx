@@ -1,13 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { Calendar, Clock, CheckSquare } from 'lucide-react';
+import { Calendar, Clock } from 'lucide-react';
 import { TaskStatusBadge, PriorityBadge } from '@/components/ui/badge';
 import { AvatarGroup } from '@/components/ui/avatar';
 import { formatDate } from '@/lib/utils';
 import type { Task, TaskStatus } from '@/types';
 
-const STATUS_ORDER: TaskStatus[] = ['todo', 'in_progress', 'review', 'done'];
+const STATUS_ORDER: TaskStatus[] = ['todo', 'in_progress', 'review', 'completed'];
 
 interface TaskCardProps {
   task: Task;
@@ -22,7 +22,7 @@ export function TaskCard({ task, onStatusChange, isAdmin }: TaskCardProps) {
 
   const isOverdue =
     task.plannedDueDate &&
-    task.status !== 'done' &&
+    task.status !== 'completed' &&
     new Date(task.plannedDueDate) < new Date();
 
   return (
@@ -43,18 +43,6 @@ export function TaskCard({ task, onStatusChange, isAdmin }: TaskCardProps) {
           <span className="rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-xs text-gray-500">{task.subTaskCount} sub-tasks</span>
         )}
       </div>
-
-      {task.stepProgress.total > 0 && (
-        <div className="mb-3">
-          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-            <span className="flex items-center gap-1"><CheckSquare className="h-3 w-3" /> Steps</span>
-            <span>{task.stepProgress.completed}/{task.stepProgress.total}</span>
-          </div>
-          <div className="h-1.5 rounded-full bg-gray-100">
-            <div className="h-1.5 rounded-full bg-gray-900 transition-all" style={{ width: `${task.stepProgress.percentage}%` }} />
-          </div>
-        </div>
-      )}
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3 text-xs text-gray-400">

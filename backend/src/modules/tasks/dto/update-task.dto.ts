@@ -41,11 +41,5 @@ export class UpdateTaskDto {
   @IsOptional()
   @IsNumber()
   @Min(0)
-  plannedEffortPh?: number;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
   estimatedEffortPh?: number;
 }

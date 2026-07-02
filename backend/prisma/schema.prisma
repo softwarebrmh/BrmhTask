@@ -12,33 +12,21 @@ datasource db {
 // ─────────────────────────────────────────
 
 enum UserRole {
-  admin
-  staff
+  owner
+  employee
 }
 
-enum StaffStatus {
+enum MemberStatus {
   invited
   active
   suspended
-}
-
-enum ProjectStatus {
-  active
-  archived
-}
-
-enum SprintStatus {
-  draft
-  active
-  review
-  completed
 }
 
 enum TaskStatus {
   todo
   in_progress
   review
-  done
+  completed
 }
 
 enum TaskPriority {
@@ -50,9 +38,7 @@ enum TaskPriority {
 
 enum AuditEntityType {
   company
-  staff
-  project
-  sprint
+  member
   task
   attachment
   note
@@ -63,17 +49,10 @@ enum AuditEntityType {
 enum AuditAction {
   COMPANY_CREATED
   COMPANY_UPDATED
-  STAFF_INVITED
-  STAFF_JOINED
-  STAFF_SUSPENDED
-  STAFF_ACTIVATED
-  PROJECT_CREATED
-  PROJECT_UPDATED
-  PROJECT_ARCHIVED
-  SPRINT_CREATED
-  SPRINT_STARTED
-  SPRINT_ENDED
-  SPRINT_UPDATED
+  MEMBER_INVITED
+  MEMBER_JOINED
+  MEMBER_SUSPENDED
+  MEMBER_ACTIVATED
   TASK_CREATED
   TASK_UPDATED
   TASK_STATUS_CHANGED
@@ -110,7 +89,7 @@ model User {
   passwordHash     String    @map("password_hash")
   fullName         String    @map("full_name")
   avatarUrl        String?   @map("avatar_url")
-  role             UserRole  @default(staff)
+  role             UserRole  @default(employee)
   isEmailVerified  Boolean   @default(false) @map("is_email_verified")
   resetPasswordToken     String?   @unique @map("reset_password_token")
   resetPasswordExpiresAt DateTime? @map("reset_password_expires_at")
@@ -119,25 +98,17 @@ model User {
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
   ownedCompanies   Company[]        @relation("CompanyOwner")
-  companyStaff     CompanyStaff[]
-  createdProjects  Project[]        @relation("ProjectCreatedBy")
-  createdSprints   Sprint[]         @relation("SprintCreatedBy")
+  companyMembers   CompanyMember[]
   ownedTasks       Task[]           @relation("TaskOwner")
   createdTasks     Task[]           @relation("TaskCreatedBy")
   taskAssignments  TaskAssignee[]   @relation("AssignedUser")
   assignedByMe     TaskAssignee[]   @relation("AssignedBy")
-  checkedSteps     TaskStep[]       @relation("StepCheckedBy")
   uploadedFiles    Attachment[]
   notes            Note[]
-  noteVersions     NoteVersion[]
   comments         Comment[]
   commentReplies   CommentReply[]
   commentReactions CommentReaction[]
   auditTrails      AuditTrail[]
-  projectMembers   ProjectMember[]  @relation("ProjectMemberUser")
-  projectMembersAdded ProjectMember[] @relation("ProjectMemberAddedBy")
-  sprintMembers    SprintMember[]   @relation("SprintMemberUser")
-  sprintMembersAdded SprintMember[] @relation("SprintMemberAddedBy")
 
   @@map("users")
 }
@@ -159,86 +130,38 @@ model Company {
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
-  owner       User           @relation("CompanyOwner", fields: [ownerId], references: [id])
-  staff       CompanyStaff[]
-  projects    Project[]
+  owner       User            @relation("CompanyOwner", fields: [ownerId], references: [id])
+  members     CompanyMember[]
+  tasks       Task[]
   auditTrails AuditTrail[]
 
   @@map("companies")
 }
 
 // ─────────────────────────────────────────
-// COMPANY STAFF
+// COMPANY MEMBERS
 // ─────────────────────────────────────────
 
-model CompanyStaff {
-  id              String      @id @default(uuid())
-  companyId       String      @map("company_id")
-  userId          String?     @map("user_id")
+model CompanyMember {
+  id              String       @id @default(uuid())
+  companyId       String       @map("company_id")
+  userId          String?      @map("user_id")
   email           String
   designation     String?
-  status          StaffStatus @default(invited)
-  inviteToken     String?     @unique @map("invite_token")
-  inviteExpiresAt DateTime?   @map("invite_expires_at")
-  joinedAt        DateTime?   @map("joined_at")
-  lastActiveAt    DateTime?   @map("last_active_at")
-  deletedAt       DateTime?   @map("deleted_at")
-  createdAt       DateTime    @default(now()) @map("created_at")
-  updatedAt       DateTime    @updatedAt @map("updated_at")
+  status          MemberStatus @default(invited)
+  inviteToken     String?      @unique @map("invite_token")
+  inviteExpiresAt DateTime?    @map("invite_expires_at")
+  joinedAt        DateTime?    @map("joined_at")
+  lastActiveAt    DateTime?    @map("last_active_at")
+  deletedAt       DateTime?    @map("deleted_at")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
 
   company Company @relation(fields: [companyId], references: [id])
   user    User?   @relation(fields: [userId], references: [id])
 
   @@unique([companyId, userId])
-  @@map("company_staff")
-}
-
-// ─────────────────────────────────────────
-// PROJECT
-// ─────────────────────────────────────────
-
-model Project {
-  id          String        @id @default(uuid())
-  companyId   String        @map("company_id")
-  name        String
-  description String?
-  status      ProjectStatus @default(active)
-  createdBy   String        @map("created_by")
-  deletedAt   DateTime?     @map("deleted_at")
-  createdAt   DateTime      @default(now()) @map("created_at")
-  updatedAt   DateTime      @updatedAt @map("updated_at")
-
-  company Company         @relation(fields: [companyId], references: [id])
-  creator User            @relation("ProjectCreatedBy", fields: [createdBy], references: [id])
-  sprints Sprint[]
-  members ProjectMember[]
-
-  @@map("projects")
-}
-
-// ─────────────────────────────────────────
-// SPRINT
-// ─────────────────────────────────────────
-
-model Sprint {
-  id          String       @id @default(uuid())
-  projectId   String       @map("project_id")
-  name        String
-  goal        String?
-  status      SprintStatus @default(draft)
-  startDate   DateTime?    @map("start_date") @db.Date
-  endDate     DateTime?    @map("end_date") @db.Date
-  createdBy   String       @map("created_by")
-  deletedAt   DateTime?    @map("deleted_at")
-  createdAt   DateTime     @default(now()) @map("created_at")
-  updatedAt   DateTime     @updatedAt @map("updated_at")
-
-  project Project        @relation(fields: [projectId], references: [id])
-  creator User           @relation("SprintCreatedBy", fields: [createdBy], references: [id])
-  tasks   Task[]
-  members SprintMember[]
-
-  @@map("sprints")
+  @@map("company_members")
 }
 
 // ─────────────────────────────────────────
@@ -247,7 +170,8 @@ model Sprint {
 
 model Task {
   id                String       @id @default(uuid())
-  sprintId          String       @map("sprint_id")
+  taskNumber        Int          @unique @default(autoincrement()) @map("task_number")
+  companyId         String       @map("company_id")
   parentTaskId      String?      @map("parent_task_id")
   name              String
   description       String?
@@ -256,7 +180,6 @@ model Task {
   startDate         DateTime?    @map("start_date") @db.Date
   plannedDueDate    DateTime?    @map("planned_due_date") @db.Date
   actualDueDate     DateTime?    @map("actual_due_date") @db.Date
-  plannedEffortPh   Decimal      @default(0) @map("planned_effort_ph") @db.Decimal(8, 2)
   estimatedEffortPh Decimal      @default(0) @map("estimated_effort_ph") @db.Decimal(8, 2)
   actualEffortPh    Decimal      @default(0) @map("actual_effort_ph") @db.Decimal(8, 2)
   ownerId           String       @map("owner_id")
@@ -265,13 +188,12 @@ model Task {
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")
 
-  sprint      Sprint         @relation(fields: [sprintId], references: [id])
+  company     Company        @relation(fields: [companyId], references: [id])
   parentTask  Task?          @relation("SubTasks", fields: [parentTaskId], references: [id])
   subTasks    Task[]         @relation("SubTasks")
   owner       User           @relation("TaskOwner", fields: [ownerId], references: [id])
   creator     User           @relation("TaskCreatedBy", fields: [createdBy], references: [id])
   assignees   TaskAssignee[]
-  steps       TaskStep[]
   attachments Attachment[]
   notes       Note[]
   comments    Comment[]
@@ -297,28 +219,6 @@ model TaskAssignee {
   assignedByUser User @relation("AssignedBy", fields: [assignedBy], references: [id])
 
   @@map("task_assignees")
-}
-
-// ─────────────────────────────────────────
-// TASK STEPS
-// ─────────────────────────────────────────
-
-model TaskStep {
-  id        String    @id @default(uuid())
-  taskId    String    @map("task_id")
-  title     String
-  isChecked Boolean   @default(false) @map("is_checked")
-  order     Int       @default(0)
-  checkedAt DateTime? @map("checked_at")
-  checkedBy String?   @map("checked_by")
-  deletedAt DateTime? @map("deleted_at")
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-
-  task          Task  @relation(fields: [taskId], references: [id])
-  checkedByUser User? @relation("StepCheckedBy", fields: [checkedBy], references: [id])
-
-  @@map("task_steps")
 }
 
 // ─────────────────────────────────────────
@@ -352,31 +252,14 @@ model Note {
   authorId  String    @map("author_id")
   title     String?
   content   String
-  version   Int       @default(1)
   deletedAt DateTime? @map("deleted_at")
   createdAt DateTime  @default(now()) @map("created_at")
   updatedAt DateTime  @updatedAt @map("updated_at")
 
-  task     Task          @relation(fields: [taskId], references: [id])
-  author   User          @relation(fields: [authorId], references: [id])
-  versions NoteVersion[]
+  task   Task @relation(fields: [taskId], references: [id])
+  author User @relation(fields: [authorId], references: [id])
 
   @@map("notes")
-}
-
-model NoteVersion {
-  id        String   @id @default(uuid())
-  noteId    String   @map("note_id")
-  content   String
-  version   Int
-  createdBy String   @map("created_by")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  note    Note @relation(fields: [noteId], references: [id])
-  creator User @relation(fields: [createdBy], references: [id])
-
-  @@unique([noteId, version])
-  @@map("note_versions")
 }
 
 // ─────────────────────────────────────────
@@ -452,42 +335,4 @@ model AuditTrail {
   actor   User    @relation(fields: [actorId], references: [id])
 
   @@map("audit_trails")
-}
-
-// ─────────────────────────────────────────
-// PROJECT MEMBERS
-// ─────────────────────────────────────────
-
-model ProjectMember {
-  id        String   @id @default(uuid())
-  projectId String   @map("project_id")
-  userId    String   @map("user_id")
-  addedBy   String   @map("added_by")
-  addedAt   DateTime @default(now()) @map("added_at")
-
-  project     Project @relation(fields: [projectId], references: [id])
-  user        User    @relation("ProjectMemberUser", fields: [userId], references: [id])
-  addedByUser User    @relation("ProjectMemberAddedBy", fields: [addedBy], references: [id])
-
-  @@unique([projectId, userId])
-  @@map("project_members")
-}
-
-// ─────────────────────────────────────────
-// SPRINT MEMBERS
-// ─────────────────────────────────────────
-
-model SprintMember {
-  id       String   @id @default(uuid())
-  sprintId String   @map("sprint_id")
-  userId   String   @map("user_id")
-  addedBy  String   @map("added_by")
-  addedAt  DateTime @default(now()) @map("added_at")
-
-  sprint      Sprint @relation(fields: [sprintId], references: [id])
-  user        User   @relation("SprintMemberUser", fields: [userId], references: [id])
-  addedByUser User   @relation("SprintMemberAddedBy", fields: [addedBy], references: [id])
-
-  @@unique([sprintId, userId])
-  @@map("sprint_members")
 }

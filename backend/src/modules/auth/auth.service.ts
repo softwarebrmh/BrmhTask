@@ -42,7 +42,7 @@ export class AuthService {
         email: dto.email,
         passwordHash,
         fullName: dto.fullName,
-        role: 'admin',
+        role: 'owner',
         isEmailVerified: false,
       },
     });
@@ -50,7 +50,7 @@ export class AuthService {
     const token = this.issueToken({
       sub: user.id,
       email: user.email,
-      role: UserRole.ADMIN,
+      role: UserRole.OWNER,
     });
 
     return {
@@ -73,8 +73,8 @@ export class AuthService {
 
     let companyId: string | undefined;
 
-    if (user.role === 'staff') {
-      const staffRecord = await this.prisma.companyStaff.findFirst({
+    if (user.role === 'employee') {
+      const staffRecord = await this.prisma.companyMember.findFirst({
         where: { userId: user.id, deletedAt: null },
       });
       if (staffRecord?.status === 'suspended') {
@@ -83,12 +83,12 @@ export class AuthService {
       companyId = staffRecord?.companyId;
 
       if (staffRecord) {
-        await this.prisma.companyStaff.update({
+        await this.prisma.companyMember.update({
           where: { id: staffRecord.id },
           data: { lastActiveAt: new Date() },
         });
       }
-    } else if (user.role === 'admin') {
+    } else if (user.role === 'owner') {
       const company = await this.prisma.company.findFirst({
         where: { ownerId: user.id, deletedAt: null },
       });
@@ -112,7 +112,7 @@ export class AuthService {
   }
 
   async acceptInvite(dto: AcceptInviteDto) {
-    const staffRecord = await this.prisma.companyStaff.findFirst({
+    const staffRecord = await this.prisma.companyMember.findFirst({
       where: { inviteToken: dto.token, deletedAt: null },
     });
     if (!staffRecord) throw new NotFoundException('Invitation not found or already used');
@@ -136,7 +136,7 @@ export class AuthService {
           email: staffRecord.email,
           passwordHash,
           fullName: dto.fullName,
-          role: 'staff',
+          role: 'employee',
           isEmailVerified: true,
         },
       });
@@ -147,7 +147,7 @@ export class AuthService {
       });
     }
 
-    await this.prisma.companyStaff.update({
+    await this.prisma.companyMember.update({
       where: { id: staffRecord.id },
       data: {
         userId: user.id,
@@ -161,7 +161,7 @@ export class AuthService {
     const token = this.issueToken({
       sub: user.id,
       email: user.email,
-      role: UserRole.STAFF,
+      role: UserRole.EMPLOYEE,
       companyId: staffRecord.companyId,
     });
 
@@ -185,7 +185,7 @@ export class AuthService {
     });
     if (existingUser) throw new ConflictException('An account with this email already exists. Please sign in.');
 
-    const existingStaff = await this.prisma.companyStaff.findFirst({
+    const existingStaff = await this.prisma.companyMember.findFirst({
       where: { email: dto.email, companyId: company.id, deletedAt: null },
     });
     if (existingStaff && existingStaff.status !== 'invited') {
@@ -198,14 +198,14 @@ export class AuthService {
         email: dto.email,
         passwordHash,
         fullName: dto.fullName,
-        role: 'staff',
+        role: 'employee',
         isEmailVerified: true,
       },
     });
 
     if (existingStaff) {
       // Was previously invited — accept the pending invite
-      await this.prisma.companyStaff.update({
+      await this.prisma.companyMember.update({
         where: { id: existingStaff.id },
         data: {
           userId: user.id,
@@ -217,7 +217,7 @@ export class AuthService {
       });
     } else {
       // Self-registered — create a new staff record
-      await this.prisma.companyStaff.create({
+      await this.prisma.companyMember.create({
         data: {
           companyId: company.id,
           userId: user.id,
@@ -231,7 +231,7 @@ export class AuthService {
     const token = this.issueToken({
       sub: user.id,
       email: user.email,
-      role: UserRole.STAFF,
+      role: UserRole.EMPLOYEE,
       companyId: company.id,
     });
 

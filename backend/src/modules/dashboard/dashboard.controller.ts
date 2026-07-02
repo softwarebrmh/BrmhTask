@@ -22,15 +22,8 @@ export class DashboardController {
 
   @Get('me')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.STAFF)
+  @Roles(UserRole.EMPLOYEE)
   getStaffDashboard(@CurrentUser() user: JwtPayload) {
     return this.dashboardService.getStaffDashboard(user);
-  }
-
-  @Get('projects/:projectId')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN)
-  getProjectSummary(@Param('projectId') projectId: string) {
-    return this.dashboardService.getProjectSummary(projectId);
   }
 }

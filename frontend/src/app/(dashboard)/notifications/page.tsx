@@ -42,8 +42,8 @@ const NOTIFICATION_TYPES = [
   {
     icon: Clock,
     color: 'bg-amber-50 text-amber-600',
-    title: 'Sprint deadline approaching',
-    description: 'Sprint 3 ends in 2 days — 4 tasks still open',
+    title: 'Task deadline approaching',
+    description: 'A task is due in 2 days',
     time: '3 days ago',
     unread: false,
   },
@@ -117,7 +117,7 @@ export default function NotificationsPage() {
             <Bell className="h-8 w-8 text-gray-200 mx-auto mb-3" />
             <p className="text-sm font-medium text-gray-400">Real-time notifications coming soon</p>
             <p className="text-xs text-gray-300 mt-1">
-              You'll be notified for task assignments, mentions, deadlines, and sprint updates.
+              You'll be notified for task assignments, mentions, and deadlines.
             </p>
           </div>
         </div>

@@ -1,14 +1,14 @@
 import {
-  Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards,
+  Body, Controller, Delete, Get, Param, Patch, Post, UseGuards,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { TasksService } from './tasks.service';
-import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 import { UpdateTaskEffortDto } from './dto/update-task-effort.dto';
+import { UpdateTaskPriorityDto } from './dto/update-task-priority.dto';
 import { AssignTaskDto } from './dto/assign-task.dto';
-import { TaskQueryDto } from './dto/task-query.dto';
+import { CreateSubtaskDto } from './dto/create-subtask.dto';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -22,26 +22,6 @@ import { JwtPayload } from '../../common/interfaces/jwt-payload.interface';
 export class TasksController {
   constructor(private tasksService: TasksService) {}
 
-  @Get('sprints/:sprintId/tasks')
-  findAll(
-    @Param('sprintId') sprintId: string,
-    @Query() query: TaskQueryDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.tasksService.findAll(sprintId, user, query);
-  }
-
-  @Post('sprints/:sprintId/tasks')
-  @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN)
-  create(
-    @Param('sprintId') sprintId: string,
-    @Body() dto: CreateTaskDto,
-    @CurrentUser() user: JwtPayload,
-  ) {
-    return this.tasksService.create(sprintId, dto, user);
-  }
-
   @Get('tasks/:taskId')
   @UseGuards(TaskAccessGuard)
   findOne(@Param('taskId') taskId: string) {
@@ -50,7 +30,7 @@ export class TasksController {
 
   @Patch('tasks/:taskId')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.OWNER)
   update(
     @Param('taskId') taskId: string,
     @Body() dto: UpdateTaskDto,
@@ -61,7 +41,7 @@ export class TasksController {
 
   @Delete('tasks/:taskId')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.OWNER)
   remove(@Param('taskId') taskId: string, @CurrentUser() user: JwtPayload) {
     return this.tasksService.remove(taskId, user);
   }
@@ -76,6 +56,17 @@ export class TasksController {
     return this.tasksService.updateStatus(taskId, dto, user);
   }
 
+  @Patch('tasks/:taskId/priority')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.OWNER)
+  updatePriority(
+    @Param('taskId') taskId: string,
+    @Body() dto: UpdateTaskPriorityDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.tasksService.updatePriority(taskId, dto, user);
+  }
+
   @Patch('tasks/:taskId/effort')
   @UseGuards(TaskAccessGuard)
   updateEffort(
@@ -88,7 +79,7 @@ export class TasksController {
 
   @Patch('tasks/:taskId/assign')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.OWNER)
   assign(
     @Param('taskId') taskId: string,
     @Body() dto: AssignTaskDto,
@@ -99,7 +90,7 @@ export class TasksController {
 
   @Patch('tasks/:taskId/unassign/:userId')
   @UseGuards(RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.OWNER)
   unassign(
     @Param('taskId') taskId: string,
     @Param('userId') userId: string,
@@ -112,5 +103,27 @@ export class TasksController {
   @UseGuards(TaskAccessGuard)
   getAssigneeHistory(@Param('taskId') taskId: string) {
     return this.tasksService.getAssigneeHistory(taskId);
+  }
+
+  @Get('tasks/:taskId/subtasks')
+  @UseGuards(TaskAccessGuard)
+  getSubtasks(@Param('taskId') taskId: string) {
+    return this.tasksService.getSubtasks(taskId);
+  }
+
+  @Post('tasks/:taskId/subtasks')
+  @UseGuards(TaskAccessGuard)
+  createSubtask(
+    @Param('taskId') taskId: string,
+    @Body() dto: CreateSubtaskDto,
+    @CurrentUser() user: JwtPayload,
+  ) {
+    return this.tasksService.createSubtask(taskId, dto, user);
+  }
+
+  @Get('tasks/:taskId/tree')
+  @UseGuards(TaskAccessGuard)
+  getTaskTree(@Param('taskId') taskId: string) {
+    return this.tasksService.getTaskTree(taskId);
   }
 }
