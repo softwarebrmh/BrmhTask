@@ -12,16 +12,32 @@ interface AuthGuardProps {
 export function AuthGuard({ children }: AuthGuardProps) {
   const { isAuthenticated } = useAuthStore();
   const router = useRouter();
-  const [isMounted, setIsMounted] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
+  useEffect(() => setMounted(true), []);
+
+  // Redirect decisions read the store directly via getState() instead of the
+  // hook value: during React hydration the hook can briefly return the stale
+  // server snapshot (unauthenticated) even though the persisted client store
+  // is already authenticated, which caused hard reloads to bounce to /login.
   useEffect(() => {
-    setIsMounted(true);
-    if (!isAuthenticated) {
-      router.replace('/login');
-    }
-  }, [isAuthenticated, router]);
+    if (!mounted) return;
 
-  if (!isMounted || !isAuthenticated) {
+    const redirectIfLoggedOut = () => {
+      if (!useAuthStore.getState().isAuthenticated) {
+        router.replace('/login');
+      }
+    };
+
+    if (useAuthStore.persist.hasHydrated()) {
+      redirectIfLoggedOut();
+    } else {
+      const unsub = useAuthStore.persist.onFinishHydration(redirectIfLoggedOut);
+      return unsub;
+    }
+  }, [mounted, isAuthenticated, router]);
+
+  if (!mounted || !isAuthenticated) {
     return <PageSpinner />;
   }
 

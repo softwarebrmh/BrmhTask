@@ -13,15 +13,33 @@ const variantClasses: Record<BadgeVariant, string> = {
   gray:    'border-gray-200 bg-gray-50 text-gray-600',
 };
 
+const dotClasses: Record<BadgeVariant, string> = {
+  default: 'bg-gray-400',
+  success: 'bg-emerald-500',
+  warning: 'bg-amber-500',
+  danger:  'bg-red-500',
+  info:    'bg-sky-500',
+  purple:  'bg-violet-500',
+  gray:    'bg-gray-400',
+};
+
 interface BadgeProps {
   children: React.ReactNode;
   variant?: BadgeVariant;
+  dot?: boolean;
   className?: string;
 }
 
-export function Badge({ children, variant = 'default', className }: BadgeProps) {
+export function Badge({ children, variant = 'default', dot = false, className }: BadgeProps) {
   return (
-    <span className={cn('inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium', variantClasses[variant], className)}>
+    <span
+      className={cn(
+        'inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium',
+        variantClasses[variant],
+        className,
+      )}
+    >
+      {dot && <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', dotClasses[variant])} />}
       {children}
     </span>
   );
@@ -35,7 +53,7 @@ export function TaskStatusBadge({ status }: { status: TaskStatus }) {
     completed:   { label: 'Completed',   variant: 'success' },
   };
   const { label, variant } = map[status];
-  return <Badge variant={variant}>{label}</Badge>;
+  return <Badge variant={variant} dot>{label}</Badge>;
 }
 
 export function PriorityBadge({ priority }: { priority: TaskPriority }) {
@@ -56,5 +74,5 @@ export function StaffStatusBadge({ status }: { status: MemberStatus }) {
     suspended: { label: 'Suspended', variant: 'danger' },
   };
   const { label, variant } = map[status];
-  return <Badge variant={variant}>{label}</Badge>;
+  return <Badge variant={variant} dot>{label}</Badge>;
 }

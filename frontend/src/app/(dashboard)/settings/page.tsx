@@ -117,7 +117,7 @@ export default function SettingsPage() {
   return (
     <>
       <Header title="Settings" />
-      <main className="flex-1 overflow-y-auto p-6">
+      <main className="flex-1 overflow-y-auto p-4 lg:p-6">
         <div className="max-w-2xl mx-auto space-y-6">
           {isOwner && user?.companyId && <CompanySettings companyId={user.companyId} />}
           <ProfileSettings />

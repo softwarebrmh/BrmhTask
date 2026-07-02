@@ -2,21 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
 @layer base {
   * {
     @apply box-border;
   }
   body {
     @apply bg-[#f7f7f5] text-gray-950 antialiased;
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: var(--font-inter), 'Inter', system-ui, sans-serif;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    @apply bg-gray-900 text-white;
+  }
+
+  /* Subtle custom scrollbars (WebKit) */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: rgba(15, 23, 42, 0.14);
+    border-radius: 8px;
+    border: 2.5px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(15, 23, 42, 0.26);
   }
 }
 
 @layer components {
   .surface {
-    @apply rounded-lg border border-gray-200/80 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.03)];
+    @apply rounded-xl border border-gray-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)];
   }
 
   .surface-muted {
@@ -25,5 +46,32 @@
 
   .quiet-ring {
     @apply focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:ring-offset-0;
+  }
+
+  /* Card used across dashboard/tasks pages */
+  .card {
+    @apply rounded-xl border border-gray-200/80 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)];
+  }
+
+  .card-hover {
+    @apply transition-shadow hover:shadow-[0_4px_16px_rgba(15,23,42,0.07)];
+  }
+}
+
+@layer utilities {
+  .animate-shimmer {
+    animation: shimmer 1.6s linear infinite;
+    background: linear-gradient(
+      100deg,
+      rgba(15, 23, 42, 0.05) 40%,
+      rgba(15, 23, 42, 0.1) 50%,
+      rgba(15, 23, 42, 0.05) 60%
+    );
+    background-size: 200% 100%;
+  }
+
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to   { background-position: -200% 0; }
   }
 }
