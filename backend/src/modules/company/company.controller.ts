@@ -9,12 +9,19 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { CompanyOwnerGuard } from '../../common/guards/company-owner.guard';
 import { UserRole } from '../../common/enums/role.enum';
 import { JwtPayload } from '../../common/interfaces/jwt-payload.interface';
+import { Public } from '../../common/decorators/public.decorator';
 
 @ApiTags('Company')
 @ApiBearerAuth()
 @Controller('companies')
 export class CompanyController {
   constructor(private companyService: CompanyService) {}
+
+  @Public()
+  @Get('lookup/:code')
+  lookup(@Param('code') code: string) {
+    return this.companyService.lookupByCode(code);
+  }
 
   @Post()
   @UseGuards(RolesGuard)

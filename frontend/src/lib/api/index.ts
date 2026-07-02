@@ -43,6 +43,8 @@ export const companyApi = {
     apiClient.post<SingleResponse<Company>>('/companies', data),
   getById: (id: string) =>
     apiClient.get<SingleResponse<Company>>(`/companies/${id}`),
+  lookup: (code: string) =>
+    apiClient.get<SingleResponse<{ name: string; slug: string }>>(`/companies/lookup/${encodeURIComponent(code)}`),
   update: (id: string, data: Partial<{ name: string; logoUrl: string; workingHoursStart: string; workingHoursEnd: string }>) =>
     apiClient.patch<SingleResponse<Company>>(`/companies/${id}`, data),
   allTasks: (companyId: string, params?: { status?: string; priority?: string; search?: string; assigneeId?: string; page?: number; limit?: number }) =>

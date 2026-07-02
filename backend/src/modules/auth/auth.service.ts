@@ -19,6 +19,7 @@ import { UserRole } from '../../common/enums/role.enum';
 import * as crypto from 'crypto';
 import { MailService } from '../mail/mail.service';
 import { EmployeeSignupDto } from './dto/employee-signup.dto';
+import { generateSlug } from '../../common/utils/slug.util';
 
 @Injectable()
 export class AuthService {
@@ -37,27 +38,44 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
 
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        passwordHash,
-        fullName: dto.fullName,
-        role: 'owner',
-        isEmailVerified: false,
-      },
+    // Create the owner user and their company atomically, so an owner is never
+    // left in a half-provisioned state without a workspace.
+    const { user, company } = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email: dto.email,
+          passwordHash,
+          fullName: dto.fullName,
+          role: 'owner',
+          isEmailVerified: false,
+        },
+      });
+
+      const company = await tx.company.create({
+        data: {
+          name: dto.companyName.trim(),
+          slug: generateSlug(dto.companyName),
+          ownerId: user.id,
+          workingHoursStart: '09:00',
+          workingHoursEnd: '18:00',
+        },
+      });
+
+      return { user, company };
     });
 
     const token = this.issueToken({
       sub: user.id,
       email: user.email,
       role: UserRole.OWNER,
+      companyId: company.id,
     });
 
     return {
       success: true,
       data: {
         accessToken: token,
-        user: this.formatUser(user),
+        user: this.formatUser(user, company.id),
       },
     };
   }
@@ -176,9 +194,9 @@ export class AuthService {
 
   async employeeSignup(dto: EmployeeSignupDto) {
     const company = await this.prisma.company.findFirst({
-      where: dto.companySlug ? { slug: dto.companySlug, deletedAt: null } : { deletedAt: null },
+      where: { slug: dto.companySlug, deletedAt: null },
     });
-    if (!company) throw new NotFoundException('No company found. Contact your administrator.');
+    if (!company) throw new NotFoundException('Invalid company join code. Double-check it with your owner.');
 
     const existingUser = await this.prisma.user.findFirst({
       where: { email: dto.email, deletedAt: null },

@@ -5,7 +5,9 @@ import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Plus, RefreshCw, Ban, UserCheck, ListTodo } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
+import { Plus, RefreshCw, Ban, UserCheck, ListTodo, Copy, Check, KeyRound } from 'lucide-react';
 import { Header } from '@/components/layout/header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,8 +17,54 @@ import { Avatar } from '@/components/ui/avatar';
 import { PageSpinner } from '@/components/ui/spinner';
 import { useAuthStore } from '@/lib/stores/auth.store';
 import { useStaff, useInviteStaff, useSuspendStaff, useActivateStaff, useResendInvite } from '@/lib/hooks/use-staff';
+import { companyApi } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
+
+function JoinCodeCard({ companyId }: { companyId: string }) {
+  const [copied, setCopied] = useState(false);
+  const { data: company } = useQuery({
+    queryKey: ['company', companyId],
+    queryFn: () => companyApi.getById(companyId).then((r) => r.data.data),
+    enabled: !!companyId,
+  });
+
+  const code = company?.slug;
+  if (!code) return null;
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      toast.success('Join code copied');
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      toast.error('Could not copy');
+    }
+  };
+
+  return (
+    <div className="card flex flex-wrap items-center gap-4 p-4">
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-gray-500">
+        <KeyRound className="h-5 w-5" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-gray-900">Company join code</p>
+        <p className="text-[13px] text-gray-500">Share this so employees can self-register on the Get&nbsp;Started screen.</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <code className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 font-mono text-sm text-gray-800">{code}</code>
+        <button
+          onClick={copy}
+          className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 text-sm font-medium text-gray-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-colors hover:bg-gray-50"
+        >
+          {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+          {copied ? 'Copied' : 'Copy'}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 const schema = z.object({ email: z.string().email('Enter a valid email') });
 type FormData = z.infer<typeof schema>;
@@ -55,6 +103,8 @@ function StaffPageContent() {
       />
 
       <main className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-4">
+        <JoinCodeCard companyId={companyId} />
+
         <div className="flex items-center gap-3">
           <select
             value={statusFilter}

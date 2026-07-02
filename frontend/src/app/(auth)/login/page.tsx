@@ -166,9 +166,9 @@ export default function LoginPage() {
       </button>
 
       <p className="mt-6 text-center text-sm text-gray-500">
-        New employee?{' '}
-        <Link href="/signup" className="font-semibold text-gray-800 hover:text-gray-950 transition-colors">
-          Create account
+        New here?{' '}
+        <Link href="/get-started" className="font-semibold text-gray-800 hover:text-gray-950 transition-colors">
+          Get started
         </Link>
       </p>
     </div>

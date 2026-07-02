@@ -53,6 +53,17 @@ export class CompanyService {
     return { success: true, data: this.format(company) };
   }
 
+  async lookupByCode(code: string) {
+    const slug = code?.toLowerCase().trim();
+    if (!slug) throw new BadRequestException('Enter a company join code');
+
+    const company = await this.companyRepository.findBySlug(slug);
+    if (!company) throw new NotFoundException('Invalid company join code');
+
+    // Public, pre-signup lookup — expose only what the join form needs.
+    return { success: true, data: { name: company.name, slug: company.slug } };
+  }
+
   async findOne(companyId: string, user: JwtPayload) {
     const company = await this.companyRepository.findById(companyId);
     if (!company) throw new NotFoundException('Company not found');

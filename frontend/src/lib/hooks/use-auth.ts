@@ -30,6 +30,21 @@ export function useLogout() {
   };
 }
 
+export function useOwnerSignup() {
+  const { setAuth } = useAuthStore();
+  const router = useRouter();
+
+  return useMutation({
+    mutationFn: (data: { fullName: string; email: string; password: string; companyName: string }) =>
+      authApi.signup(data),
+    onSuccess: ({ data }) => {
+      setAuth(data.data.user, data.data.accessToken);
+      router.push('/dashboard');
+    },
+    onError: (err) => toast.error(extractError(err)),
+  });
+}
+
 export function useAcceptInvite() {
   const { setAuth } = useAuthStore();
   const router = useRouter();

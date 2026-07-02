@@ -22,4 +22,10 @@ export class SignupDto {
     message: 'Password must contain at least one uppercase letter and one number',
   })
   password: string;
+
+  @ApiProperty({ description: 'Name of the company being created' })
+  @IsString()
+  @MinLength(2)
+  @MaxLength(255)
+  companyName: string;
 }
