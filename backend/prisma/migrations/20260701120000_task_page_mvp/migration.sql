@@ -10,7 +10,14 @@ WITH numbered AS (
 )
 UPDATE "tasks" t SET "task_number" = numbered.rn FROM numbered WHERE t.id = numbered.id;
 
-SELECT setval('tasks_task_number_seq', COALESCE((SELECT MAX("task_number") FROM "tasks"), 0));
+-- Seed the sequence so the next task_number continues after the highest backfilled
+-- value. On an empty table, set it to 1 with is_called=false so the first nextval()
+-- returns 1 (setval rejects 0, which is why an empty-DB deploy would otherwise fail).
+SELECT setval(
+  'tasks_task_number_seq',
+  GREATEST(COALESCE((SELECT MAX("task_number") FROM "tasks"), 0), 1),
+  (SELECT COUNT(*) > 0 FROM "tasks")
+);
 
 ALTER TABLE "tasks" ALTER COLUMN "task_number" SET NOT NULL;
 ALTER TABLE "tasks" ALTER COLUMN "task_number" SET DEFAULT nextval('tasks_task_number_seq');
