@@ -24,12 +24,25 @@ async function bootstrap() {
 
   app.useGlobalFilters(new GlobalExceptionFilter());
 
+  // Explicit allow-list from env (comma-separated), plus sensible auto-allows so
+  // deploys work without chasing dynamic URLs: any localhost port for dev and any
+  // *.vercel.app host (production + preview deployments).
   const allowedOrigins = (process.env.FRONTEND_URL ?? 'http://localhost:3001')
     .split(',')
-    .map((origin) => origin.trim());
+    .map((o) => o.trim())
+    .filter(Boolean);
 
   app.enableCors({
-    origin: allowedOrigins,
+    origin: (origin, callback) => {
+      // No Origin header → non-browser client (curl, server-to-server); allow.
+      if (!origin) return callback(null, true);
+      const allowed =
+        allowedOrigins.includes(origin) ||
+        /^https?:\/\/localhost(:\d+)?$/.test(origin) ||
+        /^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(origin) ||
+        /^https:\/\/[a-z0-9-]+\.vercel\.app$/.test(origin);
+      return callback(null, allowed);
+    },
     credentials: true,
   });
 
