@@ -1,0 +1,98 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const client_1 = require("@prisma/client");
+const bcrypt = require("bcrypt");
+const prisma = new client_1.PrismaClient();
+async function main() {
+    console.log('Seeding database...');
+    const adminEmail = process.env.SEED_ADMIN_EMAIL ?? 'admin@demo.com';
+    const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? 'Admin1234!';
+    const staffEmail = process.env.SEED_STAFF_EMAIL ?? 'staff@demo.com';
+    const staffPassword = process.env.SEED_STAFF_PASSWORD ?? 'Staff1234!';
+    const existingAdmin = await prisma.user.findUnique({ where: { email: adminEmail } });
+    if (existingAdmin) {
+        console.log(`Demo users already exist — skipping seed.`);
+        printCredentials(adminEmail, adminPassword, staffEmail, staffPassword);
+        return;
+    }
+    const adminHash = await bcrypt.hash(adminPassword, 12);
+    const admin = await prisma.user.create({
+        data: {
+            email: adminEmail,
+            passwordHash: adminHash,
+            fullName: 'Demo Admin',
+            role: client_1.UserRole.owner,
+            isEmailVerified: true,
+        },
+    });
+    const company = await prisma.company.create({
+        data: {
+            name: 'BHRM Demo Company',
+            slug: 'bhrm-demo-company',
+            ownerId: admin.id,
+            workingHoursStart: '09:00',
+            workingHoursEnd: '18:00',
+        },
+    });
+    const staffHash = await bcrypt.hash(staffPassword, 12);
+    const staffUser = await prisma.user.create({
+        data: {
+            email: staffEmail,
+            passwordHash: staffHash,
+            fullName: 'Demo Staff',
+            role: client_1.UserRole.employee,
+            isEmailVerified: true,
+        },
+    });
+    await prisma.companyMember.create({
+        data: {
+            companyId: company.id,
+            userId: staffUser.id,
+            email: staffEmail,
+            designation: 'Developer',
+            status: 'active',
+            joinedAt: new Date(),
+        },
+    });
+    const task = await prisma.task.create({
+        data: {
+            companyId: company.id,
+            name: 'Set up the development environment',
+            description: 'Install dependencies and run the app locally.',
+            status: 'todo',
+            priority: 'high',
+            estimatedEffortPh: 4,
+            ownerId: admin.id,
+            createdBy: admin.id,
+        },
+    });
+    await prisma.taskAssignee.create({
+        data: {
+            taskId: task.id,
+            userId: staffUser.id,
+            assignedBy: admin.id,
+        },
+    });
+    console.log(`✓ Company   : ${company.name}`);
+    console.log(`✓ Task      : ${task.name}`);
+    printCredentials(adminEmail, adminPassword, staffEmail, staffPassword);
+    console.log('\nSeeding complete.');
+}
+function printCredentials(adminEmail, adminPassword, staffEmail, staffPassword) {
+    console.log('\n┌─────────────────────────────────────────┐');
+    console.log('│           DEMO LOGIN CREDENTIALS        │');
+    console.log('├─────────────────────────────────────────┤');
+    console.log(`│  Admin  │  ${adminEmail.padEnd(28)} │`);
+    console.log(`│         │  ${adminPassword.padEnd(28)} │`);
+    console.log('├─────────────────────────────────────────┤');
+    console.log(`│  Staff  │  ${staffEmail.padEnd(28)} │`);
+    console.log(`│         │  ${staffPassword.padEnd(28)} │`);
+    console.log('└─────────────────────────────────────────┘');
+}
+main()
+    .catch((e) => {
+    console.error(e);
+    process.exit(1);
+})
+    .finally(() => prisma.$disconnect());
+//# sourceMappingURL=seed.js.map

@@ -1,4 +1,5 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Head, HttpCode, Res } from '@nestjs/common';
+import { Response } from 'express';
 import { ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Public } from '../../common/decorators/public.decorator';
@@ -25,5 +26,12 @@ export class HealthController {
       uptime: Math.floor(process.uptime()),
       services: { database: dbStatus },
     };
+  }
+
+  @Head()
+  @Public()
+  @HttpCode(200)
+  ping(@Res() res: Response): void {
+    res.status(200).end();
   }
 }
